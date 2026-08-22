@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -106,9 +105,9 @@ func printBuildResult(res domain.BuildResult) {
 		}
 	}
 	if len(failed) > 0 {
-		fmt.Fprintf(os.Stderr, "\n❌ %d step(s) failed:\n", len(failed))
+		fmt.Printf("\n❌ %d step(s) failed:\n", len(failed))
 		for _, sr := range failed {
-			fmt.Fprintf(os.Stderr, "  %s (%v): %v\n", sr.Name, sr.Duration.Round(time.Millisecond), sr.Err)
+			fmt.Printf("  %s (%v): %v\n", sr.Name, sr.Duration.Round(time.Millisecond), sr.Err)
 		}
 	}
 }
