@@ -34,10 +34,11 @@ func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lo
 		return fmt.Errorf("binary step has no install config")
 	}
 	for _, c := range bin.Install.Copy {
-		src := filepath.Join(extractDir, c.From)
+		from := repository.Replace(c.From, lookup)
+		src := filepath.Join(extractDir, from)
 		dst := repository.Replace(c.To, lookup)
 		if err := copyFile(src, dst); err != nil {
-			return fmt.Errorf("copy %s -> %s: %w", c.From, dst, err)
+			return fmt.Errorf("copy %s -> %s: %w", from, dst, err)
 		}
 		if c.Mode != "" {
 			mode, err := strconv.ParseUint(c.Mode, 8, 32)

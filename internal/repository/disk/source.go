@@ -39,6 +39,7 @@ func (e *Executor) executeSource(ctx context.Context, src *domain.SourceStep, sc
 			spec := *src.Fetch.Git
 			spec.URL = repository.Replace(spec.URL, lookup)
 			spec.Dest = repository.Replace(spec.Dest, lookup)
+			spec.Ref = repository.Replace(spec.Ref, lookup)
 			buildDir, err = e.fetchService.FetchGit(ctx, spec, sctx.Verbose)
 		default:
 			return "", "", fmt.Errorf("source step: %w: %q", domain.ErrUnknownStepKind, src.Fetch.Type)
