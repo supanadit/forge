@@ -80,13 +80,13 @@ use = "locale"                    # splice a named include group
 
 ## Step kinds
 
-| `run` | Purpose | Key fields |
-|---|---|---|
-| `apt` | System packages | `action` (install/remove/purge), `packages`, `packages_conditional` |
-| `source` | Fetch + compile source | `fetch`, `build`, `install`, `from`, `dir`, `verify` |
-| `binary` | Prebuilt binary | `fetch` (archive), `install.copy` |
-| `shell` | Arbitrary commands | `commands`, `env`, `dir`, `verify` |
-| `verify` | File-existence checks | `checks` |
+| `run`    | Purpose                | Key fields                                                          |
+| -------- | ---------------------- | ------------------------------------------------------------------- |
+| `apt`    | System packages        | `action` (install/remove/purge), `packages`, `packages_conditional` |
+| `source` | Fetch + compile source | `fetch`, `build`, `install`, `from`, `dir`, `verify`                |
+| `binary` | Prebuilt binary        | `fetch` (archive), `install.copy`                                   |
+| `shell`  | Arbitrary commands     | `commands`, `env`, `dir`, `verify`                                  |
+| `verify` | File-existence checks  | `checks`                                                            |
 
 ## Build strategies (`build.strategy`)
 
@@ -112,34 +112,7 @@ to resolve in `shell` commands and `condition` expressions.
 
 ## Architecture
 
-Clean architecture following the [go-clean-arch](https://github.com/bxcodec/go-clean-arch)
-conventions:
-
-```
-app/                       composition root (fx): wires drivers → modules → CLI
-domain/                    pure data model + errors (no tags, no interfaces)
-manifest/                  use case: loads/resolves manifests   (ManifestRepository)
-fetch/                     use case: acquires source            (FetchRepository)
-builder/                   use case: compiles source            (BuildRepository)
-build/                     use case: orchestrates steps         (StepExecutor)
-validate/                  use case: validates manifests (no repository)
-scheduler/                 use case: topo sort + levels (no repository)
-internal/cli/              delivery layer: cobra commands, owns BuildService/ValidateService
-internal/repository/       shared helpers (interpolation)
-internal/repository/disk/  real driver (filesystem, exec, network)
-internal/repository/memory/test driver (fakes)
-internal/shutdown/         signal-aware cancellation
-```
-
-Rules enforced:
-
-- Every module has `service.go` and depends only on `domain/` + other modules.
-- Modules own their repository interfaces; drivers implement them.
-- Drivers map 1:1 to module interfaces (`disk/manifest.go` → `manifest.ManifestRepository`).
-- Modules without I/O (`validate`, `scheduler`) are pure use cases — no driver files.
-- The delivery layer holds interfaces, not concrete service structs, and is
-  tested with mockery mocks.
-- Only `app/main.go` knows concrete driver implementations.
+Clean architecture following the [go-clean-arch](https://github.com/bxcodec/go-clean-arch) conventions
 
 ## Development
 
