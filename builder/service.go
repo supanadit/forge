@@ -18,9 +18,10 @@ type BuildRepository interface {
 	// Build compiles the source at sourceDir according to spec, returning the
 	// build directory.
 	Build(ctx context.Context, spec domain.BuildSpec, sourceDir string, env []string) (buildDir string, err error)
-	// Install installs a previously built tree into prefix. installTarget
-	// overrides the make target (e.g. "altinstall"); empty runs "make install".
-	Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error
+	// Install installs a previously built tree using the same build spec
+	// (prefix, install target, and make flags) so `make install` behaves
+	// identically to `make`. verbose streams output to the terminal.
+	Install(ctx context.Context, buildDir string, spec domain.BuildSpec, verbose bool) error
 }
 
 // Service is the builder use case. It delegates to the injected repository.
@@ -38,7 +39,7 @@ func (s *Service) Build(ctx context.Context, spec domain.BuildSpec, sourceDir st
 	return s.repo.Build(ctx, spec, sourceDir, env)
 }
 
-// Install installs a previously built tree into prefix.
-func (s *Service) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
-	return s.repo.Install(ctx, buildDir, prefix, installTarget, verbose)
+// Install installs a previously built tree using the given build spec.
+func (s *Service) Install(ctx context.Context, buildDir string, spec domain.BuildSpec, verbose bool) error {
+	return s.repo.Install(ctx, buildDir, spec, verbose)
 }

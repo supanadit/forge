@@ -85,8 +85,8 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 }
 
 // Install creates the prefix directory to simulate an install.
-func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
-	return os.MkdirAll(prefix, 0o755)
+func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec domain.BuildSpec, verbose bool) error {
+	return os.MkdirAll(spec.Prefix, 0o755)
 }
 
 // StepExecutor is an in-memory fake of build.StepExecutor.

@@ -41,13 +41,19 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 	}
 }
 
-// Install runs `make install` (or a custom install target) in the build dir.
-func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
+// Install runs `make install` (or a custom install target) in the build dir,
+// passing the same make flags and job count as the build step.
+func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec domain.BuildSpec, verbose bool) error {
 	target := "install"
-	if installTarget != "" {
-		target = installTarget
+	if spec.InstallTarget != "" {
+		target = spec.InstallTarget
 	}
-	install := exec.Command("make", target)
+	args := []string{target}
+	if spec.Jobs > 0 {
+		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
+	}
+	args = append(args, spec.MakeFlags...)
+	install := exec.Command("make", args...)
 	install.Dir = buildDir
 	var err error
 	if verbose {
