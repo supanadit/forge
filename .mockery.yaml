@@ -1,0 +1,24 @@
+inpackage: false
+with-expecter: true
+testonly: false
+dir: "{{.InterfaceDir}}/mocks"
+mockname: "{{.InterfaceName}}"
+outpkg: "mocks"
+filename: "{{.InterfaceName}}.go"
+packages:
+  github.com/supanadit/forge/manifest:
+    interfaces:
+      ManifestRepository:
+  github.com/supanadit/forge/fetch:
+    interfaces:
+      FetchRepository:
+  github.com/supanadit/forge/builder:
+    interfaces:
+      BuildRepository:
+  github.com/supanadit/forge/build:
+    interfaces:
+      StepExecutor:
+  github.com/supanadit/forge/internal/cli:
+    interfaces:
+      BuildService:
+      ValidateService:

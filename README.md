@@ -1,0 +1,151 @@
+# forge
+
+`forge` is a declarative, TOML-driven build orchestrator. One `forge.toml`
+describes any program's setup — apt packages, source fetch + compile, prebuilt
+binaries, shell commands, and verification — and `forge build` executes it with
+topological dependency ordering and parallel steps.
+
+It replaces the `setup.sh` + numbered shell-script pattern used in container
+projects (see `container-scripts/docker/postgresql` and `apache-kafka`), and
+works on regular projects too.
+
+## Commands
+
+```
+forge init [dir]                 Scaffold a new forge.toml
+forge validate <manifest.toml>   Validate a manifest without executing
+forge build <manifest.toml>      Build a project from a manifest
+    --parallel N                 Max concurrent steps (0 = auto)
+    --dry-run                    Print the execution plan without running
+    --fail-fast=false            Continue past failed steps
+    -v, --verbose                Stream live command output
+    --var KEY=VALUE              Override a manifest var (repeatable)
+```
+
+## Manifest
+
+```toml
+[project]
+name = "demo"
+description = ""
+
+[vars]
+VERSION = "1.0"
+
+[[includes]]                      # inline splice: steps inserted here
+path = "shared/apt-cleanup.toml"
+
+[[includes]]                      # named group: referenced via `use`
+path = "shared/locale.toml"
+as = "locale"
+
+[[steps]]
+name = "install-deps"
+run = "apt"
+action = "install"
+packages = ["curl", "build-essential"]
+packages_conditional = [{ condition = "${VERSION%%.*} >= 17", packages = ["bison"] }]
+
+[[steps]]
+name = "build-app"
+depends_on = ["install-deps"]
+run = "source"
+fetch = { type = "archive", url = "https://example.com/app-${VERSION}.tar.gz" }
+build = { strategy = "configure", prefix = "/usr/local/app", flags = ["--with-ssl"] }
+install = true
+verify = [{ file = "/usr/local/app/bin/app" }]
+
+[[steps]]
+name = "git-source"
+run = "source"
+fetch = { type = "git", url = "https://github.com/org/repo.git", ref = "v${VERSION}", depth = 1 }
+build = { strategy = "cmake" }
+
+[[steps]]
+name = "metrics"
+run = "binary"
+fetch = { type = "archive", url = "https://example.com/metrics.tar.gz" }
+install = { copy = [{ from = "metrics", to = "/usr/local/bin/metrics", mode = "0755" }] }
+
+[[steps]]
+name = "configure-runtime"
+run = "shell"
+commands = ["echo 'done'", "ldconfig"]
+env = { PATH = "/usr/local/app/bin:${PATH}" }
+
+[[steps]]
+name = "locale"
+use = "locale"                    # splice a named include group
+```
+
+## Step kinds
+
+| `run` | Purpose | Key fields |
+|---|---|---|
+| `apt` | System packages | `action` (install/remove/purge), `packages`, `packages_conditional` |
+| `source` | Fetch + compile source | `fetch`, `build`, `install`, `from`, `dir`, `verify` |
+| `binary` | Prebuilt binary | `fetch` (archive), `install.copy` |
+| `shell` | Arbitrary commands | `commands`, `env`, `dir`, `verify` |
+| `verify` | File-existence checks | `checks` |
+
+## Build strategies (`build.strategy`)
+
+- `configure` — `./configure && make` (autotools)
+- `autogen` — `autoreconf -fi && ./configure && make`
+- `cmake` — `cmake && make`
+- `meson` — `meson setup && ninja`
+- `make` — `make && make install`
+- `detect` — auto-select from the source tree
+
+## Fetch types (`fetch.type`)
+
+- `archive` — download + extract (`tar.gz`, `tgz`, `tar`, `zip`), optional checksum
+- `git` — `git clone` with optional branch/tag and depth
+
+## Interpolation
+
+`${VAR}` and `${VAR:-default}` resolve from `[vars]`, the environment, and
+`--var` overrides (precedence: vars < env < overrides). `${step:NAME.source}`
+and `${step:NAME.prefix}` reference a prior step's fetched source dir / install
+prefix. Shell-style expansions like `${VAR%%.*}` are left verbatim for `bash`
+to resolve in `shell` commands and `condition` expressions.
+
+## Architecture
+
+Clean architecture following the [go-clean-arch](https://github.com/bxcodec/go-clean-arch)
+conventions:
+
+```
+app/                       composition root (fx): wires drivers → modules → CLI
+domain/                    pure data model + errors (no tags, no interfaces)
+manifest/                  use case: loads/resolves manifests   (ManifestRepository)
+fetch/                     use case: acquires source            (FetchRepository)
+builder/                   use case: compiles source            (BuildRepository)
+build/                     use case: orchestrates steps         (StepExecutor)
+validate/                  use case: validates manifests (no repository)
+scheduler/                 use case: topo sort + levels (no repository)
+internal/cli/              delivery layer: cobra commands, owns BuildService/ValidateService
+internal/repository/       shared helpers (interpolation)
+internal/repository/disk/  real driver (filesystem, exec, network)
+internal/repository/memory/test driver (fakes)
+internal/shutdown/         signal-aware cancellation
+```
+
+Rules enforced:
+
+- Every module has `service.go` and depends only on `domain/` + other modules.
+- Modules own their repository interfaces; drivers implement them.
+- Drivers map 1:1 to module interfaces (`disk/manifest.go` → `manifest.ManifestRepository`).
+- Modules without I/O (`validate`, `scheduler`) are pure use cases — no driver files.
+- The delivery layer holds interfaces, not concrete service structs, and is
+  tested with mockery mocks.
+- Only `app/main.go` knows concrete driver implementations.
+
+## Development
+
+```
+make build      # build ./bin/forge
+make test       # run tests
+make vet        # go vet
+make mocks      # regenerate mockery mocks
+```
