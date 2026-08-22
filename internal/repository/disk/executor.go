@@ -67,7 +67,7 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 		res.SourceDir = srcDir
 		res.Prefix = prefix
 	case domain.StepKindBinary:
-		err = e.executeBinary(ctx, step.Binary, lookup, sctx.Verbose)
+		err = e.executeBinary(ctx, step.Binary, lookup)
 	case domain.StepKindShell:
 		err = e.executeShell(ctx, step.Shell, sctx, lookup)
 	case domain.StepKindVerify:

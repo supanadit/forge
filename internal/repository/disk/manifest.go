@@ -96,6 +96,9 @@ type stepDTO struct {
 	// shell
 	Commands []string `toml:"commands"`
 
+	// cache
+	CacheVerify []verifyCheckDTO `toml:"cache_verify"`
+
 	// verify
 	Checks []verifyCheckDTO `toml:"checks"`
 	Verify []verifyCheckDTO `toml:"verify"`
@@ -299,13 +302,14 @@ func mapStep(d stepDTO) (domain.Step, error) {
 			return domain.Step{}, err
 		}
 		st.Source = &domain.SourceStep{
-			Fetch:   fetch,
-			Build:   build,
-			Install: d.Install != nil && d.Install.Enabled,
-			From:    d.From,
-			Dir:     d.Dir,
-			Env:     d.Env,
-			Verify:  mapVerify(d.Verify),
+			Fetch:       fetch,
+			Build:       build,
+			Install:     d.Install != nil && d.Install.Enabled,
+			From:        d.From,
+			Dir:         d.Dir,
+			Env:         d.Env,
+			Verify:      mapVerify(d.Verify),
+			CacheVerify: mapVerify(d.CacheVerify),
 		}
 	case domain.StepKindBinary:
 		st.Kind = domain.StepKindBinary
@@ -314,8 +318,9 @@ func mapStep(d stepDTO) (domain.Step, error) {
 			return domain.Step{}, err
 		}
 		st.Binary = &domain.BinaryStep{
-			Fetch:  fetch,
-			Verify: mapVerify(d.Verify),
+			Fetch:       fetch,
+			Verify:      mapVerify(d.Verify),
+			CacheVerify: mapVerify(d.CacheVerify),
 		}
 		if d.Install != nil {
 			bi := &domain.BinaryInstall{}
@@ -327,10 +332,11 @@ func mapStep(d stepDTO) (domain.Step, error) {
 	case domain.StepKindShell:
 		st.Kind = domain.StepKindShell
 		st.Shell = &domain.ShellStep{
-			Commands: d.Commands,
-			Env:      d.Env,
-			Dir:      d.Dir,
-			Verify:   mapVerify(d.Verify),
+			Commands:    d.Commands,
+			Env:         d.Env,
+			Dir:         d.Dir,
+			Verify:      mapVerify(d.Verify),
+			CacheVerify: mapVerify(d.CacheVerify),
 		}
 	case domain.StepKindVerify:
 		st.Kind = domain.StepKindVerify

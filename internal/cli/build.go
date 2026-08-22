@@ -41,6 +41,8 @@ func (h *BuildHandler) buildCmd() *cobra.Command {
 	cmd.Flags().Bool("fail-fast", true, "Stop on first step failure")
 	cmd.Flags().BoolP("verbose", "v", false, "Stream live step output")
 	cmd.Flags().StringArray("var", nil, "Override manifest var (KEY=VALUE)")
+	cmd.Flags().String("cache-dir", "", "Override build cache directory")
+	cmd.Flags().Bool("no-cache", false, "Disable the build cache and run all steps")
 	return cmd
 }
 
@@ -52,6 +54,8 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 	failFast, _ := cmd.Flags().GetBool("fail-fast")
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	varOverrides, _ := cmd.Flags().GetStringArray("var")
+	cacheDir, _ := cmd.Flags().GetString("cache-dir")
+	noCache, _ := cmd.Flags().GetBool("no-cache")
 
 	opts := domain.BuildOptions{
 		Parallel:     parallel,
@@ -59,6 +63,8 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 		FailFast:     failFast,
 		Verbose:      verbose,
 		VarOverrides: varOverrides,
+		CacheDir:     cacheDir,
+		NoCache:      noCache,
 	}
 
 	fmt.Printf("🔨 Building %s\n", manifestPath)
@@ -90,6 +96,8 @@ func printBuildResult(res domain.BuildResult) {
 			fmt.Printf("  ✗ %s (%v)\n", sr.Name, sr.Duration.Round(time.Millisecond))
 		case domain.StepStatusSkipped:
 			fmt.Printf("  - %s skipped\n", sr.Name)
+		case domain.StepStatusCached:
+			fmt.Printf("  ⚡ %s (cached)\n", sr.Name)
 		default:
 			fmt.Printf("  ? %s (%v)\n", sr.Name, sr.Duration.Round(time.Millisecond))
 		}

@@ -13,7 +13,7 @@ import (
 )
 
 // executeBinary downloads a prebuilt archive and copies files into place.
-func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lookup repository.Lookup, verbose bool) error {
+func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lookup repository.Lookup) error {
 	if bin == nil || bin.Fetch == nil {
 		return fmt.Errorf("binary step has no fetch config")
 	}

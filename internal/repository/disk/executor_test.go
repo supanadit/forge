@@ -12,7 +12,6 @@ import (
 	"github.com/supanadit/forge/builder"
 	"github.com/supanadit/forge/domain"
 	"github.com/supanadit/forge/fetch"
-	"github.com/supanadit/forge/internal/repository"
 )
 
 func newTestExecutor(t *testing.T) *Executor {
@@ -20,13 +19,6 @@ func newTestExecutor(t *testing.T) *Executor {
 	f := fetch.NewService(NewFetchRepository())
 	b := builder.NewService(NewBuildRepository())
 	return NewExecutor(f, b)
-}
-
-func lookupVars(v map[string]string) repository.Lookup {
-	return func(name string) (string, bool) {
-		val, ok := v[name]
-		return val, ok
-	}
 }
 
 func TestExecute_ShellStep(t *testing.T) {

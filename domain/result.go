@@ -16,6 +16,8 @@ const (
 	StepStatusFailed StepStatus = "failed"
 	// StepStatusSkipped means the step was skipped (e.g. already satisfied).
 	StepStatusSkipped StepStatus = "skipped"
+	// StepStatusCached means the step was restored from the build cache.
+	StepStatusCached StepStatus = "cached"
 )
 
 // StepResult captures the outcome of executing one step.
@@ -34,6 +36,9 @@ type StepResult struct {
 	// Prefix is the install prefix for source steps,
 	// referenceable via ${step:NAME} interpolation.
 	Prefix string
+	// CacheKey is the content hash that uniquely identifies this step's inputs.
+	// Dependent steps use it in their own cache keys for transitive invalidation.
+	CacheKey string
 }
 
 // BuildResult is the aggregate outcome of building a manifest.
@@ -56,6 +61,10 @@ type BuildOptions struct {
 	Verbose bool
 	// VarOverrides are KEY=VALUE overrides applied on top of [vars] and env.
 	VarOverrides []string
+	// CacheDir overrides the build cache directory. Empty uses the default.
+	CacheDir string
+	// NoCache disables the build cache; all steps run regardless.
+	NoCache bool
 }
 
 // ValidationResult is the outcome of validating a manifest without running it.
@@ -89,4 +98,10 @@ type StepContext struct {
 	WorkDir string
 	// Verbose streams live command output to the terminal when true.
 	Verbose bool
+	// Project is the manifest's project name, used to scope the cache.
+	Project string
+	// CacheDir overrides the build cache directory. Empty uses the default.
+	CacheDir string
+	// NoCache disables the build cache for this step.
+	NoCache bool
 }

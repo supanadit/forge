@@ -27,6 +27,12 @@ type StepExecutor interface {
 	Execute(ctx context.Context, step domain.Step, sctx domain.StepContext) (domain.StepResult, error)
 }
 
+// CachePruner is an optional interface a StepExecutor may implement to remove
+// cache entries for steps that no longer exist in the manifest.
+type CachePruner interface {
+	Prune(project string, validSteps map[string]bool)
+}
+
 // Service orchestrates the build pipeline.
 type Service struct {
 	manifest  *manifest.Service
@@ -61,6 +67,17 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 	byName := make(map[string]domain.Step, len(m.Steps))
 	for _, st := range m.Steps {
 		byName[st.Name] = st
+	}
+
+	// Prune cache entries for steps no longer in the manifest.
+	if !opts.NoCache {
+		if pruner, ok := s.executor.(CachePruner); ok {
+			valid := make(map[string]bool, len(byName))
+			for name := range byName {
+				valid[name] = true
+			}
+			pruner.Prune(m.Project.Name, valid)
+		}
 	}
 
 	results := make([]domain.StepResult, 0, len(m.Steps))
@@ -99,7 +116,14 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 				if opts.Verbose {
 					fmt.Printf("  ▶ %s\n", name)
 				}
-				sctx := domain.StepContext{Vars: vars, Previous: prevCopy, Verbose: opts.Verbose}
+				sctx := domain.StepContext{
+					Vars:     vars,
+					Previous: prevCopy,
+					Verbose:  opts.Verbose,
+					Project:  m.Project.Name,
+					CacheDir: opts.CacheDir,
+					NoCache:  opts.NoCache,
+				}
 				res, err := s.executor.Execute(ctx, step, sctx)
 				if err != nil {
 					res.Status = domain.StepStatusFailed

@@ -74,6 +74,10 @@ type SourceStep struct {
 	Env map[string]string
 	// Verify lists post-install file assertions.
 	Verify []VerifyCheck
+	// CacheVerify lists file assertions checked on cache hit. When present,
+	// the step is cacheable and these checks validate that the step's output
+	// already exists; otherwise the step's prefix or Verify checks are used.
+	CacheVerify []VerifyCheck
 }
 
 // BinaryStep downloads a prebuilt binary and copies files into place.
@@ -84,6 +88,8 @@ type BinaryStep struct {
 	Install *BinaryInstall
 	// Verify lists post-install file assertions.
 	Verify []VerifyCheck
+	// CacheVerify lists file existence assertions used to validate cache hits.
+	CacheVerify []VerifyCheck
 }
 
 // BinaryInstall describes how to place a downloaded binary archive.
@@ -112,6 +118,10 @@ type ShellStep struct {
 	Dir string
 	// Verify lists post-command file assertions.
 	Verify []VerifyCheck
+	// CacheVerify lists file assertions checked on cache hit. Shell steps are
+	// cacheable only when this is set, since their side effects can't otherwise
+	// be verified to still exist.
+	CacheVerify []VerifyCheck
 }
 
 // VerifyStep asserts that files exist.
