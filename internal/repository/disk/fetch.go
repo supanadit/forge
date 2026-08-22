@@ -100,8 +100,8 @@ func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (s
 			args = append(args, "-b", spec.Ref)
 		}
 		args = append(args, spec.URL, dest)
-		cmd := exec.CommandContext(ctx, "git", args...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		cmd := exec.Command("git", args...)
+		if out, err := runProcess(ctx, cmd); err != nil {
 			return "", fmt.Errorf("git clone %s: %w\n%s", spec.URL, err, out)
 		}
 	}

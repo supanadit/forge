@@ -23,10 +23,13 @@ func NewRootCmd() *cobra.Command {
 	}
 }
 
-// RegisterRootCmd executes the root command via the fx lifecycle.
+// RegisterRootCmd executes the root command via the fx lifecycle. The context
+// passed to OnStart is the app's signal-aware context (set on the root command
+// in main), so cmd.Context() inside handlers cancels on SIGINT/SIGTERM.
 func RegisterRootCmd(rootCmd *cobra.Command, lc fx.Lifecycle) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			rootCmd.SetContext(ctx)
 			return rootCmd.Execute()
 		},
 	})

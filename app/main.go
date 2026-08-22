@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"go.uber.org/fx"
 
@@ -15,24 +17,24 @@ import (
 	"github.com/supanadit/forge/fetch"
 	"github.com/supanadit/forge/internal/cli"
 	"github.com/supanadit/forge/internal/repository/disk"
-	"github.com/supanadit/forge/internal/shutdown"
 	"github.com/supanadit/forge/manifest"
 	"github.com/supanadit/forge/scheduler"
 	"github.com/supanadit/forge/validate"
 )
 
 func main() {
-	mgr := shutdown.New(shutdown.DefaultSignals...)
-	shutdownCtx := mgr.Context()
+	// Signal-aware context: cancels on SIGINT/SIGTERM so a running build's
+	// subprocesses are terminated. Attached to the root cobra command so
+	// cmd.Context() flows into every handler and service call.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	go func() {
-		sig := mgr.Wait()
-		shutdown.PrintInterrupted(sig)
-	}()
+	rootCmd := cli.NewRootCmd()
+	rootCmd.SetContext(ctx)
 
 	options := []fx.Option{
 		fx.NopLogger,
-		fx.Supply(shutdownCtx),
+		fx.Supply(rootCmd),
 		fx.Provide(
 			// Drivers (infrastructure — the only place concrete impls are known).
 			fx.Annotate(disk.NewManifestRepository, fx.As(new(manifest.ManifestRepository))),
@@ -47,9 +49,6 @@ func main() {
 			scheduler.NewService,
 			fx.Annotate(build.NewService, fx.As(new(cli.BuildService))),
 			fx.Annotate(validate.NewService, fx.As(new(cli.ValidateService))),
-
-			// Delivery.
-			cli.NewRootCmd,
 		),
 		fx.Invoke(
 			cli.RegisterRootCmd,
@@ -61,13 +60,10 @@ func main() {
 
 	app := fx.New(options...)
 
-	if err := app.Start(context.Background()); err != nil {
-		mgr.Stop()
+	if err := app.Start(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
-	mgr.Stop()
 
 	if err := app.Stop(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -40,8 +40,8 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, lookup r
 
 	args := []string{apt.Action, "-y"}
 	args = append(args, pkgs...)
-	cmd := exec.CommandContext(ctx, "apt-get", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	cmd := exec.Command("apt-get", args...)
+	if out, err := runProcess(ctx, cmd); err != nil {
 		return fmt.Errorf("apt-get %s %s: %w\n%s", apt.Action, strings.Join(pkgs, " "), err, out)
 	}
 	return nil
@@ -51,9 +51,9 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, lookup r
 func evalCondition(ctx context.Context, cond string, env []string) (bool, error) {
 	// Use bash [[ ]] with the vars as environment so ${VAR%%.*} style
 	// expressions resolve. Exit 0 = true, 1 = false.
-	cmd := exec.CommandContext(ctx, "bash", "-c", "[[ "+cond+" ]]")
+	cmd := exec.Command("bash", "-c", "[[ "+cond+" ]]")
 	cmd.Env = env
-	if err := cmd.Run(); err != nil {
+	if _, err := runProcess(ctx, cmd); err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 1 {
 			return false, nil
 		}

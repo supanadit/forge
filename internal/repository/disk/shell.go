@@ -3,7 +3,6 @@ package disk
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 
 	"github.com/supanadit/forge/domain"
@@ -24,20 +23,21 @@ func (e *Executor) executeShell(ctx context.Context, sh *domain.ShellStep, sctx 
 
 	for _, cmdStr := range sh.Commands {
 		interp := repository.Replace(cmdStr, lookup)
-		cmd := exec.CommandContext(ctx, "sh", "-c", interp)
+		// Use exec.Command (not CommandContext): runProcess owns ctx
+		// cancellation and kills the whole process group, not just the shell.
+		cmd := exec.Command("sh", "-c", interp)
 		cmd.Env = env
 		if dir != "" {
 			cmd.Dir = dir
 		}
 		if e.verbose {
 			fmt.Println("  $", interp)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
+			if err := runProcessVerbose(ctx, cmd); err != nil {
 				return fmt.Errorf("shell: %w", err)
 			}
 		} else {
-			if out, err := cmd.CombinedOutput(); err != nil {
+			out, err := runProcess(ctx, cmd)
+			if err != nil {
 				return fmt.Errorf("shell %q: %w\n%s", interp, err, out)
 			}
 		}

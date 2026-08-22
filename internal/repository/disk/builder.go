@@ -43,9 +43,9 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 
 // Install runs `make install` in the build directory.
 func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string) error {
-	install := exec.CommandContext(ctx, "make", "install")
+	install := exec.Command("make", "install")
 	install.Dir = buildDir
-	if out, err := install.CombinedOutput(); err != nil {
+	if out, err := runProcess(ctx, install); err != nil {
 		return fmt.Errorf("make install: %w\n%s", err, out)
 	}
 	return nil
@@ -66,7 +66,7 @@ func (r *BuildRepository) buildConfigure(ctx context.Context, spec domain.BuildS
 	}
 	args = append(args, spec.Flags...)
 
-	if err := runCmd(ctx, exec.CommandContext(ctx, "bash", args...), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("bash", args...), src, env); err != nil {
 		return "", fmt.Errorf("configure: %w", err)
 	}
 	if err := r.runMake(ctx, spec, src, env); err != nil {
@@ -76,7 +76,7 @@ func (r *BuildRepository) buildConfigure(ctx context.Context, spec domain.BuildS
 }
 
 func (r *BuildRepository) buildAutogen(ctx context.Context, spec domain.BuildSpec, src string, env []string) (string, error) {
-	if err := runCmd(ctx, exec.CommandContext(ctx, "autoreconf", "-fi"), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("autoreconf", "-fi"), src, env); err != nil {
 		return "", fmt.Errorf("autoreconf: %w", err)
 	}
 	return r.buildConfigure(ctx, spec, src, env)
@@ -94,7 +94,7 @@ func (r *BuildRepository) buildCMake(ctx context.Context, spec domain.BuildSpec,
 	args = append(args, "-DCMAKE_BUILD_TYPE=Release")
 	args = append(args, spec.Flags...)
 
-	cmake := exec.CommandContext(ctx, "cmake", args...)
+	cmake := exec.Command("cmake", args...)
 	cmake.Dir = buildDir
 	cmake.Env = mergeEnv(env)
 	if err := runCmd(ctx, cmake, buildDir, env); err != nil {
@@ -116,10 +116,10 @@ func (r *BuildRepository) buildMeson(ctx context.Context, spec domain.BuildSpec,
 		args = append(args, "--prefix="+spec.Prefix)
 	}
 	args = append(args, spec.Flags...)
-	if err := runCmd(ctx, exec.CommandContext(ctx, "meson", args...), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("meson", args...), src, env); err != nil {
 		return "", fmt.Errorf("meson setup: %w", err)
 	}
-	if err := runCmd(ctx, exec.CommandContext(ctx, "ninja", "-C", buildDir), buildDir, env); err != nil {
+	if err := runCmd(ctx, exec.Command("ninja", "-C", buildDir), buildDir, env); err != nil {
 		return "", fmt.Errorf("ninja: %w", err)
 	}
 	return buildDir, nil
@@ -138,7 +138,7 @@ func (r *BuildRepository) runMake(ctx context.Context, spec domain.BuildSpec, di
 		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
 	}
 	args = append(args, spec.MakeFlags...)
-	make := exec.CommandContext(ctx, "make", args...)
+	make := exec.Command("make", args...)
 	make.Dir = dir
 	make.Env = mergeEnv(env)
 	if err := runCmd(ctx, make, dir, env); err != nil {
@@ -152,7 +152,8 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, dir string, env []string) error 
 		cmd.Dir = dir
 	}
 	cmd.Env = mergeEnv(env)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := runProcess(ctx, cmd)
+	if err != nil {
 		return fmt.Errorf("%v: %w\n%s", cmd.Args, err, out)
 	}
 	return nil
