@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/supanadit/forge/builder"
@@ -22,6 +23,9 @@ type Executor struct {
 	builderService *builder.Service
 	cacheDir       string
 	verbose        bool
+	// aptMu serializes apt-get calls. apt-get uses a dpkg lock file, so
+	// parallel apt steps would otherwise fail with a lock-frontend conflict.
+	aptMu sync.Mutex
 }
 
 // NewExecutor creates a step executor.

@@ -42,6 +42,10 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map
 	args := []string{apt.Action, "-y"}
 	args = append(args, pkgs...)
 	cmd := exec.Command("apt-get", args...)
+	// Serialize apt-get across parallel steps: apt uses a dpkg lock file, so
+	// concurrent invocations would fail with a lock-frontend conflict.
+	e.aptMu.Lock()
+	defer e.aptMu.Unlock()
 	var err error
 	if verbose {
 		out, e := runProcessVerbose(ctx, cmd, nil, nil)
