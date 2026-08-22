@@ -38,9 +38,9 @@ func NewExecutor(f *fetch.Service, b *builder.Service) *Executor {
 }
 
 // Execute runs a single step and returns its result.
-func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.StepContext) (domain.StepResult, error) {
+func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.StepContext) (res domain.StepResult, err error) {
 	start := time.Now()
-	res := domain.StepResult{
+	res = domain.StepResult{
 		Name:   step.Name,
 		Status: domain.StepStatusSuccess,
 	}
@@ -58,7 +58,6 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 		return "", false
 	})
 
-	var err error
 	switch step.Kind {
 	case domain.StepKindApt:
 		err = e.executeApt(ctx, step.Apt, sctx.Vars, sctx.Verbose)
@@ -84,9 +83,9 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	if err != nil {
 		res.Status = domain.StepStatusFailed
 		res.Err = err
-		return res, err
+		return
 	}
-	return res, nil
+	return
 }
 
 // filepathJoinDefaultCache mirrors the fetch cache location.
