@@ -18,7 +18,7 @@ type FetchRepository interface {
 	// resolved source directory.
 	FetchArchive(ctx context.Context, spec domain.ArchiveFetch) (sourceDir string, err error)
 	// FetchGit clones a git repository, returning the resolved source directory.
-	FetchGit(ctx context.Context, spec domain.GitFetch) (sourceDir string, err error)
+	FetchGit(ctx context.Context, spec domain.GitFetch, verbose bool) (sourceDir string, err error)
 }
 
 // Service is the fetch use case. It delegates to the injected repository.
@@ -37,6 +37,6 @@ func (s *Service) FetchArchive(ctx context.Context, spec domain.ArchiveFetch) (s
 }
 
 // FetchGit clones a git repository, returning the source dir.
-func (s *Service) FetchGit(ctx context.Context, spec domain.GitFetch) (string, error) {
-	return s.repo.FetchGit(ctx, spec)
+func (s *Service) FetchGit(ctx context.Context, spec domain.GitFetch, verbose bool) (string, error) {
+	return s.repo.FetchGit(ctx, spec, verbose)
 }

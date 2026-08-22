@@ -30,7 +30,7 @@ func (e *Executor) executeShell(ctx context.Context, sh *domain.ShellStep, sctx 
 		if dir != "" {
 			cmd.Dir = dir
 		}
-		if e.verbose {
+		if sctx.Verbose {
 			fmt.Println("  $", interp)
 			if err := runProcessVerbose(ctx, cmd); err != nil {
 				return fmt.Errorf("shell: %w", err)

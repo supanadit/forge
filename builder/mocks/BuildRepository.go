@@ -81,17 +81,17 @@ func (_c *BuildRepository_Build_Call) RunAndReturn(run func(context.Context, dom
 	return _c
 }
 
-// Install provides a mock function with given fields: ctx, buildDir, prefix, installTarget
-func (_m *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string) error {
-	ret := _m.Called(ctx, buildDir, prefix, installTarget)
+// Install provides a mock function with given fields: ctx, buildDir, prefix, installTarget, verbose
+func (_m *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
+	ret := _m.Called(ctx, buildDir, prefix, installTarget, verbose)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Install")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, buildDir, prefix, installTarget)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, bool) error); ok {
+		r0 = rf(ctx, buildDir, prefix, installTarget, verbose)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -109,13 +109,14 @@ type BuildRepository_Install_Call struct {
 //   - buildDir string
 //   - prefix string
 //   - installTarget string
-func (_e *BuildRepository_Expecter) Install(ctx interface{}, buildDir interface{}, prefix interface{}, installTarget interface{}) *BuildRepository_Install_Call {
-	return &BuildRepository_Install_Call{Call: _e.mock.On("Install", ctx, buildDir, prefix, installTarget)}
+//   - verbose bool
+func (_e *BuildRepository_Expecter) Install(ctx interface{}, buildDir interface{}, prefix interface{}, installTarget interface{}, verbose interface{}) *BuildRepository_Install_Call {
+	return &BuildRepository_Install_Call{Call: _e.mock.On("Install", ctx, buildDir, prefix, installTarget, verbose)}
 }
 
-func (_c *BuildRepository_Install_Call) Run(run func(ctx context.Context, buildDir string, prefix string, installTarget string)) *BuildRepository_Install_Call {
+func (_c *BuildRepository_Install_Call) Run(run func(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool)) *BuildRepository_Install_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(bool))
 	})
 	return _c
 }
@@ -125,7 +126,7 @@ func (_c *BuildRepository_Install_Call) Return(_a0 error) *BuildRepository_Insta
 	return _c
 }
 
-func (_c *BuildRepository_Install_Call) RunAndReturn(run func(context.Context, string, string, string) error) *BuildRepository_Install_Call {
+func (_c *BuildRepository_Install_Call) RunAndReturn(run func(context.Context, string, string, string, bool) error) *BuildRepository_Install_Call {
 	_c.Call.Return(run)
 	return _c
 }

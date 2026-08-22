@@ -59,7 +59,7 @@ func (r *FetchRepository) FetchArchive(ctx context.Context, spec domain.ArchiveF
 }
 
 // FetchGit returns the registered source dir for the URL, or a sentinel.
-func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (string, error) {
+func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch, verbose bool) (string, error) {
 	if dir, ok := r.sourceDirs[spec.URL]; ok {
 		return dir, nil
 	}
@@ -85,7 +85,7 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 }
 
 // Install creates the prefix directory to simulate an install.
-func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string) error {
+func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
 	return os.MkdirAll(prefix, 0o755)
 }
 

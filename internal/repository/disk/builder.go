@@ -42,17 +42,24 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 }
 
 // Install runs `make install` (or a custom install target) in the build dir.
-func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string) error {
+func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string, verbose bool) error {
 	target := "install"
 	if installTarget != "" {
 		target = installTarget
 	}
 	install := exec.Command("make", target)
 	install.Dir = buildDir
-	if out, err := runProcess(ctx, install); err != nil {
-		return fmt.Errorf("make %s: %w\n%s", target, err, out)
+	var err error
+	if verbose {
+		err = runProcessVerbose(ctx, install)
+	} else {
+		var out []byte
+		out, err = runProcess(ctx, install)
+		if err != nil {
+			err = fmt.Errorf("make %s: %w\n%s", target, err, out)
+		}
 	}
-	return nil
+	return err
 }
 
 func (r *BuildRepository) buildConfigure(ctx context.Context, spec domain.BuildSpec, src string, env []string) (string, error) {
@@ -70,7 +77,7 @@ func (r *BuildRepository) buildConfigure(ctx context.Context, spec domain.BuildS
 	}
 	args = append(args, spec.Flags...)
 
-	if err := runCmd(ctx, exec.Command("bash", args...), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("bash", args...), src, env, spec.Verbose); err != nil {
 		return "", fmt.Errorf("configure: %w", err)
 	}
 	if err := r.runMake(ctx, spec, src, env); err != nil {
@@ -80,7 +87,7 @@ func (r *BuildRepository) buildConfigure(ctx context.Context, spec domain.BuildS
 }
 
 func (r *BuildRepository) buildAutogen(ctx context.Context, spec domain.BuildSpec, src string, env []string) (string, error) {
-	if err := runCmd(ctx, exec.Command("autoreconf", "-fi"), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("autoreconf", "-fi"), src, env, spec.Verbose); err != nil {
 		return "", fmt.Errorf("autoreconf: %w", err)
 	}
 	return r.buildConfigure(ctx, spec, src, env)
@@ -101,7 +108,7 @@ func (r *BuildRepository) buildCMake(ctx context.Context, spec domain.BuildSpec,
 	cmake := exec.Command("cmake", args...)
 	cmake.Dir = buildDir
 	cmake.Env = mergeEnv(env)
-	if err := runCmd(ctx, cmake, buildDir, env); err != nil {
+	if err := runCmd(ctx, cmake, buildDir, env, spec.Verbose); err != nil {
 		return "", fmt.Errorf("cmake: %w", err)
 	}
 	if err := r.runMake(ctx, spec, buildDir, env); err != nil {
@@ -120,10 +127,10 @@ func (r *BuildRepository) buildMeson(ctx context.Context, spec domain.BuildSpec,
 		args = append(args, "--prefix="+spec.Prefix)
 	}
 	args = append(args, spec.Flags...)
-	if err := runCmd(ctx, exec.Command("meson", args...), src, env); err != nil {
+	if err := runCmd(ctx, exec.Command("meson", args...), src, env, spec.Verbose); err != nil {
 		return "", fmt.Errorf("meson setup: %w", err)
 	}
-	if err := runCmd(ctx, exec.Command("ninja", "-C", buildDir), buildDir, env); err != nil {
+	if err := runCmd(ctx, exec.Command("ninja", "-C", buildDir), buildDir, env, spec.Verbose); err != nil {
 		return "", fmt.Errorf("ninja: %w", err)
 	}
 	return buildDir, nil
@@ -145,17 +152,20 @@ func (r *BuildRepository) runMake(ctx context.Context, spec domain.BuildSpec, di
 	make := exec.Command("make", args...)
 	make.Dir = dir
 	make.Env = mergeEnv(env)
-	if err := runCmd(ctx, make, dir, env); err != nil {
+	if err := runCmd(ctx, make, dir, env, spec.Verbose); err != nil {
 		return fmt.Errorf("make: %w", err)
 	}
 	return nil
 }
 
-func runCmd(ctx context.Context, cmd *exec.Cmd, dir string, env []string) error {
+func runCmd(ctx context.Context, cmd *exec.Cmd, dir string, env []string, verbose bool) error {
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Env = mergeEnv(env)
+	if verbose {
+		return runProcessVerbose(ctx, cmd)
+	}
 	out, err := runProcess(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("%v: %w\n%s", cmd.Args, err, out)

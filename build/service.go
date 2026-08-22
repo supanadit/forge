@@ -9,6 +9,7 @@ package build
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -95,7 +96,10 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 				}
 				mu.Unlock()
 
-				sctx := domain.StepContext{Vars: vars, Previous: prevCopy}
+				if opts.Verbose {
+					fmt.Printf("  ▶ %s\n", name)
+				}
+				sctx := domain.StepContext{Vars: vars, Previous: prevCopy, Verbose: opts.Verbose}
 				res, err := s.executor.Execute(ctx, step, sctx)
 				if err != nil {
 					res = domain.StepResult{Name: name, Status: domain.StepStatusFailed, Err: err}

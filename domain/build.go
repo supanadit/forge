@@ -35,4 +35,6 @@ type BuildSpec struct {
 	// InstallTarget overrides the make target run on install (e.g. "altinstall"
 	// for CPython). Empty runs "make install".
 	InstallTarget string
+	// Verbose streams build command output to the terminal when true.
+	Verbose bool
 }

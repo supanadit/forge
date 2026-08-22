@@ -80,9 +80,9 @@ func (_c *FetchRepository_FetchArchive_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// FetchGit provides a mock function with given fields: ctx, spec
-func (_m *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (string, error) {
-	ret := _m.Called(ctx, spec)
+// FetchGit provides a mock function with given fields: ctx, spec, verbose
+func (_m *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch, verbose bool) (string, error) {
+	ret := _m.Called(ctx, spec, verbose)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchGit")
@@ -90,17 +90,17 @@ func (_m *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, domain.GitFetch) (string, error)); ok {
-		return rf(ctx, spec)
+	if rf, ok := ret.Get(0).(func(context.Context, domain.GitFetch, bool) (string, error)); ok {
+		return rf(ctx, spec, verbose)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, domain.GitFetch) string); ok {
-		r0 = rf(ctx, spec)
+	if rf, ok := ret.Get(0).(func(context.Context, domain.GitFetch, bool) string); ok {
+		r0 = rf(ctx, spec, verbose)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, domain.GitFetch) error); ok {
-		r1 = rf(ctx, spec)
+	if rf, ok := ret.Get(1).(func(context.Context, domain.GitFetch, bool) error); ok {
+		r1 = rf(ctx, spec, verbose)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -116,13 +116,14 @@ type FetchRepository_FetchGit_Call struct {
 // FetchGit is a helper method to define mock.On call
 //   - ctx context.Context
 //   - spec domain.GitFetch
-func (_e *FetchRepository_Expecter) FetchGit(ctx interface{}, spec interface{}) *FetchRepository_FetchGit_Call {
-	return &FetchRepository_FetchGit_Call{Call: _e.mock.On("FetchGit", ctx, spec)}
+//   - verbose bool
+func (_e *FetchRepository_Expecter) FetchGit(ctx interface{}, spec interface{}, verbose interface{}) *FetchRepository_FetchGit_Call {
+	return &FetchRepository_FetchGit_Call{Call: _e.mock.On("FetchGit", ctx, spec, verbose)}
 }
 
-func (_c *FetchRepository_FetchGit_Call) Run(run func(ctx context.Context, spec domain.GitFetch)) *FetchRepository_FetchGit_Call {
+func (_c *FetchRepository_FetchGit_Call) Run(run func(ctx context.Context, spec domain.GitFetch, verbose bool)) *FetchRepository_FetchGit_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(domain.GitFetch))
+		run(args[0].(context.Context), args[1].(domain.GitFetch), args[2].(bool))
 	})
 	return _c
 }
@@ -132,7 +133,7 @@ func (_c *FetchRepository_FetchGit_Call) Return(sourceDir string, err error) *Fe
 	return _c
 }
 
-func (_c *FetchRepository_FetchGit_Call) RunAndReturn(run func(context.Context, domain.GitFetch) (string, error)) *FetchRepository_FetchGit_Call {
+func (_c *FetchRepository_FetchGit_Call) RunAndReturn(run func(context.Context, domain.GitFetch, bool) (string, error)) *FetchRepository_FetchGit_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // executeApt installs/removes system packages via apt-get.
-func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map[string]string) error {
+func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map[string]string, verbose bool) error {
 	if apt == nil {
 		return fmt.Errorf("apt step has no config")
 	}
@@ -42,10 +42,17 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map
 	args := []string{apt.Action, "-y"}
 	args = append(args, pkgs...)
 	cmd := exec.Command("apt-get", args...)
-	if out, err := runProcess(ctx, cmd); err != nil {
-		return fmt.Errorf("apt-get %s %s: %w\n%s", apt.Action, strings.Join(pkgs, " "), err, out)
+	var err error
+	if verbose {
+		err = runProcessVerbose(ctx, cmd)
+	} else {
+		var out []byte
+		out, err = runProcess(ctx, cmd)
+		if err != nil {
+			err = fmt.Errorf("apt-get %s %s: %w\n%s", apt.Action, strings.Join(pkgs, " "), err, out)
+		}
 	}
-	return nil
+	return err
 }
 
 // evalCondition evaluates a shell condition string (e.g. "17 -ge 17").

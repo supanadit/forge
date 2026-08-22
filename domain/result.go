@@ -87,4 +87,6 @@ type StepContext struct {
 	Previous map[string]StepResult
 	// WorkDir is the base working directory (defaults to the manifest dir).
 	WorkDir string
+	// Verbose streams live command output to the terminal when true.
+	Verbose bool
 }

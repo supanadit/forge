@@ -77,7 +77,7 @@ func (r *FetchRepository) FetchArchive(ctx context.Context, spec domain.ArchiveF
 }
 
 // FetchGit clones a git repository, returning the resolved source directory.
-func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (string, error) {
+func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch, verbose bool) (string, error) {
 	if spec.URL == "" {
 		return "", fmt.Errorf("fetch git: empty url")
 	}
@@ -101,8 +101,14 @@ func (r *FetchRepository) FetchGit(ctx context.Context, spec domain.GitFetch) (s
 		}
 		args = append(args, spec.URL, dest)
 		cmd := exec.Command("git", args...)
-		if out, err := runProcess(ctx, cmd); err != nil {
-			return "", fmt.Errorf("git clone %s: %w\n%s", spec.URL, err, out)
+		if verbose {
+			if err := runProcessVerbose(ctx, cmd); err != nil {
+				return "", fmt.Errorf("git clone %s: %w", spec.URL, err)
+			}
+		} else {
+			if out, err := runProcess(ctx, cmd); err != nil {
+				return "", fmt.Errorf("git clone %s: %w\n%s", spec.URL, err, out)
+			}
 		}
 	}
 

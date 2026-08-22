@@ -57,14 +57,14 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	var err error
 	switch step.Kind {
 	case domain.StepKindApt:
-		err = e.executeApt(ctx, step.Apt, sctx.Vars)
+		err = e.executeApt(ctx, step.Apt, sctx.Vars, sctx.Verbose)
 	case domain.StepKindSource:
 		var srcDir, prefix string
 		srcDir, prefix, err = e.executeSource(ctx, step.Source, sctx, lookup)
 		res.SourceDir = srcDir
 		res.Prefix = prefix
 	case domain.StepKindBinary:
-		err = e.executeBinary(ctx, step.Binary, lookup)
+		err = e.executeBinary(ctx, step.Binary, lookup, sctx.Verbose)
 	case domain.StepKindShell:
 		err = e.executeShell(ctx, step.Shell, sctx, lookup)
 	case domain.StepKindVerify:
