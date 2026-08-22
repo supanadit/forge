@@ -75,6 +75,7 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 
 	res, err := h.svc.Build(cmd.Context(), manifestPath, opts)
 	if err != nil {
+		printBuildResult(res)
 		fmt.Fprintf(os.Stderr, "❌ %s\n", err)
 		return err
 	}

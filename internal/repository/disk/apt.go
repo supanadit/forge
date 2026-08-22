@@ -44,7 +44,10 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map
 	cmd := exec.Command("apt-get", args...)
 	var err error
 	if verbose {
-		err = runProcessVerbose(ctx, cmd)
+		out, e := runProcessVerbose(ctx, cmd, nil, nil)
+		if e != nil {
+			err = fmt.Errorf("apt-get %s %s: %w\n%s", apt.Action, strings.Join(pkgs, " "), e, out)
+		}
 	} else {
 		var out []byte
 		out, err = runProcess(ctx, cmd)

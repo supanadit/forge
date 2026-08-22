@@ -51,7 +51,10 @@ func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix s
 	install.Dir = buildDir
 	var err error
 	if verbose {
-		err = runProcessVerbose(ctx, install)
+		out, e := runProcessVerbose(ctx, install, nil, nil)
+		if e != nil {
+			err = fmt.Errorf("make %s: %w\n%s", target, e, out)
+		}
 	} else {
 		var out []byte
 		out, err = runProcess(ctx, install)
@@ -164,7 +167,11 @@ func runCmd(ctx context.Context, cmd *exec.Cmd, dir string, env []string, verbos
 	}
 	cmd.Env = mergeEnv(env)
 	if verbose {
-		return runProcessVerbose(ctx, cmd)
+		out, err := runProcessVerbose(ctx, cmd, nil, nil)
+		if err != nil {
+			return fmt.Errorf("%v: %w\n%s", cmd.Args, err, out)
+		}
+		return nil
 	}
 	out, err := runProcess(ctx, cmd)
 	if err != nil {

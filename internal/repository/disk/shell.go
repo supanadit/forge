@@ -32,8 +32,9 @@ func (e *Executor) executeShell(ctx context.Context, sh *domain.ShellStep, sctx 
 		}
 		if sctx.Verbose {
 			fmt.Println("  $", interp)
-			if err := runProcessVerbose(ctx, cmd); err != nil {
-				return fmt.Errorf("shell: %w", err)
+			out, err := runProcessVerbose(ctx, cmd, nil, nil)
+			if err != nil {
+				return fmt.Errorf("shell %q: %w\n%s", interp, err, out)
 			}
 		} else {
 			out, err := runProcess(ctx, cmd)
