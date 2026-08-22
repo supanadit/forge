@@ -76,7 +76,7 @@ func (e *Executor) executeSource(ctx context.Context, src *domain.SourceStep, sc
 	}
 
 	if src.Install {
-		if err := e.builderService.Install(ctx, buildDir, buildSpec.Prefix); err != nil {
+		if err := e.builderService.Install(ctx, buildDir, buildSpec.Prefix, buildSpec.InstallTarget); err != nil {
 			return sourceDir, prefix, err
 		}
 	}

@@ -16,6 +16,11 @@ func envLookup(vars map[string]string) Lookup {
 	}
 }
 
+// EnvLookup wraps a map as a Lookup.
+func EnvLookup(vars map[string]string) Lookup {
+	return envLookup(vars)
+}
+
 // Replace expands ${VAR} and ${VAR:-default} placeholders in s using the
 // given lookup. A placeholder with no match and no default is left verbatim.
 // The default may itself contain placeholders, which are recursively expanded

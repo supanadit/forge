@@ -147,12 +147,13 @@ type fetchDTO struct {
 }
 
 type buildDTO struct {
-	Strategy  string            `toml:"strategy"`
-	Prefix    string            `toml:"prefix"`
-	Flags     []string          `toml:"flags"`
-	Env       map[string]string `toml:"env"`
-	MakeFlags []string          `toml:"make_flags"`
-	Jobs      int               `toml:"jobs"`
+	Strategy      string            `toml:"strategy"`
+	Prefix        string            `toml:"prefix"`
+	Flags         []string          `toml:"flags"`
+	Env           map[string]string `toml:"env"`
+	MakeFlags     []string          `toml:"make_flags"`
+	Jobs          int               `toml:"jobs"`
+	InstallTarget string            `toml:"install_target"`
 }
 
 type copyDTO struct {
@@ -372,12 +373,13 @@ func mapBuild(d *buildDTO) (*domain.BuildSpec, error) {
 		return nil, nil
 	}
 	return &domain.BuildSpec{
-		Strategy:  domain.BuildStrategy(d.Strategy),
-		Prefix:    d.Prefix,
-		Flags:     d.Flags,
-		Env:       d.Env,
-		MakeFlags: d.MakeFlags,
-		Jobs:      d.Jobs,
+		Strategy:      domain.BuildStrategy(d.Strategy),
+		Prefix:        d.Prefix,
+		Flags:         d.Flags,
+		Env:           d.Env,
+		MakeFlags:     d.MakeFlags,
+		Jobs:          d.Jobs,
+		InstallTarget: d.InstallTarget,
 	}, nil
 }
 

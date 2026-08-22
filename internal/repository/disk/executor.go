@@ -57,7 +57,7 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	var err error
 	switch step.Kind {
 	case domain.StepKindApt:
-		err = e.executeApt(ctx, step.Apt, lookup)
+		err = e.executeApt(ctx, step.Apt, sctx.Vars)
 	case domain.StepKindSource:
 		var srcDir, prefix string
 		srcDir, prefix, err = e.executeSource(ctx, step.Source, sctx, lookup)

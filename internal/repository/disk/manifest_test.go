@@ -61,7 +61,7 @@ name = "pg"
 name = "build-pg"
 run = "source"
 fetch = { type = "archive", url = "https://x/postgresql.tar.gz" }
-build = { strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"] }
+build = { strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"], install_target = "altinstall" }
 install = true
 verify = [{ file = "/usr/local/pgsql/bin/postgres" }]
 `)
@@ -76,6 +76,7 @@ verify = [{ file = "/usr/local/pgsql/bin/postgres" }]
 	assert.Equal(t, "https://x/postgresql.tar.gz", src.Fetch.Archive.URL)
 	require.NotNil(t, src.Build)
 	assert.Equal(t, domain.BuildStrategyConfigure, src.Build.Strategy)
+	assert.Equal(t, "altinstall", src.Build.InstallTarget)
 	assert.True(t, src.Install)
 	require.Len(t, src.Verify, 1)
 	assert.Equal(t, "/usr/local/pgsql/bin/postgres", src.Verify[0].File)

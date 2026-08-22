@@ -12,7 +12,7 @@ import (
 )
 
 // executeApt installs/removes system packages via apt-get.
-func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, lookup repository.Lookup) error {
+func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, vars map[string]string) error {
 	if apt == nil {
 		return fmt.Errorf("apt step has no config")
 	}
@@ -22,11 +22,12 @@ func (e *Executor) executeApt(ctx context.Context, apt *domain.AptStep, lookup r
 		return fmt.Errorf("unsupported apt action %q", apt.Action)
 	}
 
+	lookup := repository.EnvLookup(vars)
 	var pkgs []string
 	pkgs = append(pkgs, apt.Packages...)
 	for _, cp := range apt.PackagesConditional {
 		cond := repository.Replace(cp.Condition, lookup)
-		ok, err := evalCondition(ctx, cond, varsToEnv(lookup))
+		ok, err := evalCondition(ctx, cond, varsToEnv(vars))
 		if err != nil {
 			return err
 		}
@@ -62,7 +63,21 @@ func evalCondition(ctx context.Context, cond string, env []string) (bool, error)
 	return true, nil
 }
 
-// varsToEnv converts a Lookup into a KEY=VALUE env slice.
-func varsToEnv(lookup repository.Lookup) []string {
-	return os.Environ()
+// varsToEnv converts a vars map plus the OS environment into a KEY=VALUE slice
+// so bash can resolve ${VAR%%.*}-style expressions in conditions.
+func varsToEnv(vars map[string]string) []string {
+	merged := map[string]string{}
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			merged[k] = v
+		}
+	}
+	for k, v := range vars {
+		merged[k] = v
+	}
+	out := make([]string, 0, len(merged))
+	for k, v := range merged {
+		out = append(out, k+"="+v)
+	}
+	return out
 }

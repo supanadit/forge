@@ -32,4 +32,7 @@ type BuildSpec struct {
 	MakeFlags []string
 	// Jobs controls make parallelism (0 = auto).
 	Jobs int
+	// InstallTarget overrides the make target run on install (e.g. "altinstall"
+	// for CPython). Empty runs "make install".
+	InstallTarget string
 }

@@ -41,12 +41,16 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 	}
 }
 
-// Install runs `make install` in the build directory.
-func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string) error {
-	install := exec.Command("make", "install")
+// Install runs `make install` (or a custom install target) in the build dir.
+func (r *BuildRepository) Install(ctx context.Context, buildDir string, prefix string, installTarget string) error {
+	target := "install"
+	if installTarget != "" {
+		target = installTarget
+	}
+	install := exec.Command("make", target)
 	install.Dir = buildDir
 	if out, err := runProcess(ctx, install); err != nil {
-		return fmt.Errorf("make install: %w\n%s", err, out)
+		return fmt.Errorf("make %s: %w\n%s", target, err, out)
 	}
 	return nil
 }

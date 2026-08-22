@@ -140,6 +140,26 @@ func TestExecute_AptUnknownAction(t *testing.T) {
 	assert.Equal(t, domain.StepStatusFailed, res.Status)
 }
 
+func TestExecute_AptConditionalUsesVars(t *testing.T) {
+	e := newTestExecutor(t)
+	step := domain.Step{
+		Name: "deps",
+		Kind: domain.StepKindApt,
+		Apt: &domain.AptStep{
+			Action: "install",
+			PackagesConditional: []domain.ConditionalPackages{
+				{Condition: "${POSTGRESQL_VERSION%%.*} -ge 17", Packages: []string{"bison"}},
+			},
+		},
+	}
+	// POSTGRESQL_VERSION=13.5 → 13 < 17 → bison must NOT be installed.
+	res, err := e.Execute(context.Background(), step, domain.StepContext{
+		Vars: map[string]string{"POSTGRESQL_VERSION": "13.5"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, domain.StepStatusSuccess, res.Status)
+}
+
 func TestStepFieldInterpolation(t *testing.T) {
 	e := newTestExecutor(t)
 	srcDir := t.TempDir()
