@@ -76,7 +76,6 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 	res, err := h.svc.Build(cmd.Context(), manifestPath, opts)
 	if err != nil {
 		printBuildResult(res)
-		fmt.Fprintf(os.Stderr, "❌ %s\n", err)
 		return err
 	}
 	printBuildResult(res)
@@ -97,4 +96,19 @@ func printBuildResult(res domain.BuildResult) {
 		}
 	}
 	fmt.Printf("✅ Build complete: %d steps in %v\n", len(res.Steps), res.TotalDuration.Round(time.Millisecond))
+
+	// Print every failed step's error at the end so it is visible even when
+	// parallel verbose output scrolled past the terminal buffer.
+	var failed []domain.StepResult
+	for _, sr := range res.Steps {
+		if sr.Status == domain.StepStatusFailed {
+			failed = append(failed, sr)
+		}
+	}
+	if len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "\n❌ %d step(s) failed:\n", len(failed))
+		for _, sr := range failed {
+			fmt.Fprintf(os.Stderr, "  %s (%v): %v\n", sr.Name, sr.Duration.Round(time.Millisecond), sr.Err)
+		}
+	}
 }
