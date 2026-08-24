@@ -57,11 +57,14 @@ func TestService_List(t *testing.T) {
 
 func TestCacheable(t *testing.T) {
 	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindVerify}))
-	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}))
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{CacheVerify: []domain.VerifyCheck{{File: "/x"}}}}))
+	// Shell steps are always cacheable — outputs are inferred by snapshot diff.
+	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}))
 	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindApt, Apt: &domain.AptStep{Action: "install", Packages: []string{"curl"}}}))
 	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindApt, Apt: &domain.AptStep{Action: "remove"}}))
 	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{Verify: []domain.VerifyCheck{{File: "/x"}}}}))
+	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{Build: &domain.BuildSpec{Prefix: "/usr/local/pgsql"}}}))
+	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{}}))
+	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindBinary, Binary: &domain.BinaryStep{Install: &domain.BinaryInstall{Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/m"}}}}}))
 }
 
 // fakeInner is a StepExecutor that records how many times it was called.
@@ -84,17 +87,19 @@ func TestCachedExecutor_HitSkipsInner(t *testing.T) {
 	step := domain.Step{
 		Name:  "link",
 		Kind:  domain.StepKindShell,
-		Shell: &domain.ShellStep{CacheVerify: []domain.VerifyCheck{{File: "/usr/bin/tool"}}},
+		Shell: &domain.ShellStep{},
 	}
 	sctx := domain.StepContext{Vars: map[string]string{}, Previous: map[string]domain.StepResult{}, Project: "proj"}
 
-	// First run: no cache file, executes inner.
+	// First run: no cache file, executes inner. fakeInner records no outputs,
+	// so the saved entry cannot be verified later.
 	res1, err := ce.Execute(context.Background(), step, sctx)
 	require.NoError(t, err)
 	assert.Equal(t, domain.StepStatusSuccess, res1.Status)
 	assert.Equal(t, 1, inner.calls)
 
-	// Second run: cache saved, but verify fails (file doesn't exist) → executes again.
+	// Second run: cache hit but verification fails (no recorded outputs and
+	// nothing on disk) → executes again.
 	res2, err := ce.Execute(context.Background(), step, sctx)
 	require.NoError(t, err)
 	assert.Equal(t, domain.StepStatusSuccess, res2.Status)

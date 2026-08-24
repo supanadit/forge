@@ -96,9 +96,6 @@ type stepDTO struct {
 	// shell
 	Commands []string `toml:"commands"`
 
-	// cache
-	CacheVerify []verifyCheckDTO `toml:"cache_verify"`
-
 	// verify
 	Checks []verifyCheckDTO `toml:"checks"`
 	Verify []verifyCheckDTO `toml:"verify"`
@@ -190,6 +187,12 @@ func (rs *resolver) resolveFile(ctx context.Context, path string) (parsedDoc, er
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return parsedDoc{}, err
+	}
+	// Legacy manifests may still carry cache_verify; it is ignored — forge
+	// infers step outputs automatically. Warn once per file so authors can
+	// clean up.
+	if bytes.Contains(raw, []byte("cache_verify")) {
+		fmt.Fprintf(os.Stderr, "warning: %s: 'cache_verify' is deprecated and ignored; forge infers step outputs automatically\n", path)
 	}
 	var dto manifestDTO
 	if err := toml.NewDecoder(bytes.NewReader(raw)).EnableUnmarshalerInterface().Decode(&dto); err != nil {
@@ -302,14 +305,13 @@ func mapStep(d stepDTO) (domain.Step, error) {
 			return domain.Step{}, err
 		}
 		st.Source = &domain.SourceStep{
-			Fetch:       fetch,
-			Build:       build,
-			Install:     d.Install != nil && d.Install.Enabled,
-			From:        d.From,
-			Dir:         d.Dir,
-			Env:         d.Env,
-			Verify:      mapVerify(d.Verify),
-			CacheVerify: mapVerify(d.CacheVerify),
+			Fetch:   fetch,
+			Build:   build,
+			Install: d.Install != nil && d.Install.Enabled,
+			From:    d.From,
+			Dir:     d.Dir,
+			Env:     d.Env,
+			Verify:  mapVerify(d.Verify),
 		}
 	case domain.StepKindBinary:
 		st.Kind = domain.StepKindBinary
@@ -318,9 +320,8 @@ func mapStep(d stepDTO) (domain.Step, error) {
 			return domain.Step{}, err
 		}
 		st.Binary = &domain.BinaryStep{
-			Fetch:       fetch,
-			Verify:      mapVerify(d.Verify),
-			CacheVerify: mapVerify(d.CacheVerify),
+			Fetch:  fetch,
+			Verify: mapVerify(d.Verify),
 		}
 		if d.Install != nil {
 			bi := &domain.BinaryInstall{}
@@ -332,11 +333,10 @@ func mapStep(d stepDTO) (domain.Step, error) {
 	case domain.StepKindShell:
 		st.Kind = domain.StepKindShell
 		st.Shell = &domain.ShellStep{
-			Commands:    d.Commands,
-			Env:         d.Env,
-			Dir:         d.Dir,
-			Verify:      mapVerify(d.Verify),
-			CacheVerify: mapVerify(d.CacheVerify),
+			Commands: d.Commands,
+			Env:      d.Env,
+			Dir:      d.Dir,
+			Verify:   mapVerify(d.Verify),
 		}
 	case domain.StepKindVerify:
 		st.Kind = domain.StepKindVerify

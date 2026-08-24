@@ -14,9 +14,15 @@ type StepExecutor interface {
 }
 
 // CachedExecutor wraps an inner StepExecutor and restores results from the
-// build cache when a step's inputs are unchanged and its output still exists.
+// build cache when a step's inputs are unchanged and its outputs still exist.
 // It is transparent to the build service, so parallel level execution,
 // fail-fast, and scheduling are unaffected.
+//
+// Cache hits are verified against automatically discovered outputs (shell
+// snapshot diffs) or inferred paths (prefix / verify / copy destinations).
+// When verification fails because the filesystem was reset — e.g. a Docker
+// layer rebuild — the step's persisted artifact archive is restored and the
+// check retried before falling back to re-execution.
 type CachedExecutor struct {
 	inner StepExecutor
 	cache *Service
@@ -47,15 +53,16 @@ func (e *CachedExecutor) Execute(ctx context.Context, step domain.Step, sctx dom
 	deps := SortedDeps(step, sctx.Previous)
 	key := ComputeKey(step, sctx.Vars, deps)
 
-	if cf, ok := svc.Lookup(project, step.Name, key); ok && Verify(step) {
-		res := domain.StepResult{
-			Name:      step.Name,
-			Status:    domain.StepStatusCached,
-			SourceDir: cf.SourceDir,
-			Prefix:    cf.Prefix,
-			CacheKey:  key,
+	if cf, ok := svc.Lookup(project, step.Name, key); ok {
+		if !Verify(step, cf) {
+			// The filesystem may have been reset (Docker layer rebuild):
+			// restore the persisted artifacts, then re-check.
+			if err := svc.RestoreArtifact(project, step.Name, key); err == nil && Verify(step, cf) {
+				return cachedResult(step.Name, cf, key), nil
+			}
+		} else {
+			return cachedResult(step.Name, cf, key), nil
 		}
-		return res, nil
 	}
 
 	res, err := e.exec(ctx, step, sctx)
@@ -64,13 +71,33 @@ func (e *CachedExecutor) Execute(ctx context.Context, step domain.Step, sctx dom
 	}
 	res.CacheKey = key
 	if res.Status == domain.StepStatusSuccess {
-		svc.Save(project, step.Name, key, CacheFile{
+		outputs := res.Outputs
+		_ = svc.Save(project, step.Name, key, CacheFile{
 			SourceDir: res.SourceDir,
 			Prefix:    res.Prefix,
 			Deps:      deps,
+			Outputs:   outputs,
 		})
+		// Persist artifacts so later runs can survive filesystem resets.
+		// Best effort: persistence failures must never fail the build.
+		paths := outputs
+		if len(paths) == 0 {
+			paths = OutputPaths(step)
+		}
+		_ = svc.SaveArtifact(project, step.Name, key, paths)
 	}
 	return res, nil
+}
+
+func cachedResult(name string, cf CacheFile, key string) domain.StepResult {
+	return domain.StepResult{
+		Name:      name,
+		Status:    domain.StepStatusCached,
+		SourceDir: cf.SourceDir,
+		Prefix:    cf.Prefix,
+		Outputs:   cf.Outputs,
+		CacheKey:  key,
+	}
 }
 
 func (e *CachedExecutor) exec(ctx context.Context, step domain.Step, sctx domain.StepContext) (domain.StepResult, error) {

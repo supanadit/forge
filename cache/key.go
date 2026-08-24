@@ -75,7 +75,6 @@ func configString(step domain.Step) string {
 				"dir="+step.Source.Dir,
 				"env="+mapString(step.Source.Env),
 				"verify="+verifyString(step.Source.Verify),
-				"cache_verify="+verifyString(step.Source.CacheVerify),
 			)
 		}
 	case domain.StepKindBinary:
@@ -84,7 +83,6 @@ func configString(step domain.Step) string {
 				"fetch="+fetchString(step.Binary.Fetch),
 				"install="+binaryInstallString(step.Binary.Install),
 				"verify="+verifyString(step.Binary.Verify),
-				"cache_verify="+verifyString(step.Binary.CacheVerify),
 			)
 		}
 	case domain.StepKindShell:
@@ -94,7 +92,6 @@ func configString(step domain.Step) string {
 				"env="+mapString(step.Shell.Env),
 				"dir="+step.Shell.Dir,
 				"verify="+verifyString(step.Shell.Verify),
-				"cache_verify="+verifyString(step.Shell.CacheVerify),
 			)
 		}
 	case domain.StepKindVerify:

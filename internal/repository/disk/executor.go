@@ -69,7 +69,7 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	case domain.StepKindBinary:
 		err = e.executeBinary(ctx, step.Binary, lookup)
 	case domain.StepKindShell:
-		err = e.executeShell(ctx, step.Shell, sctx, lookup)
+		res.Outputs, err = e.executeShell(ctx, step.Shell, sctx, lookup)
 	case domain.StepKindVerify:
 		if step.Verify != nil {
 			err = e.executeVerify(step.Verify.Checks, lookup)

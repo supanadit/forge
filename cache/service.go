@@ -12,8 +12,10 @@ import (
 )
 
 // CacheFile is the persisted metadata for a cached step. It stores the step's
-// name, content hash, status, and any reusable outputs (SourceDir/Prefix) so a
-// later run can restore a cached result without re-executing the step.
+// name, content hash, status, any reusable outputs (SourceDir/Prefix), and the
+// automatically discovered filesystem paths (Outputs) the step produced, so a
+// later run can verify — and, via artifacts, restore — a cached result
+// without re-executing the step.
 type CacheFile struct {
 	Name      string            `json:"name"`
 	Key       string            `json:"key"`
@@ -21,6 +23,7 @@ type CacheFile struct {
 	SourceDir string            `json:"source_dir,omitempty"`
 	Prefix    string            `json:"prefix,omitempty"`
 	Deps      map[string]string `json:"deps,omitempty"`
+	Outputs   []string          `json:"outputs,omitempty"`
 }
 
 // Service manages the build cache: reading/writing cache files, validating
@@ -81,15 +84,14 @@ func (s *Service) Save(project, name, key string, cf CacheFile) error {
 	return os.WriteFile(s.StepPath(project, name, key), data, 0o644)
 }
 
-// Prune removes cache files for steps that no longer exist in the manifest,
-// keeping the cache directory clean without deleting other projects' entries.
+// Prune removes cache files and artifact tarballs for steps that no longer
+// exist in the manifest, keeping the cache directory clean without deleting
+// other projects' entries. A nil validSteps removes everything for the
+// project.
 func (s *Service) Prune(project string, validSteps map[string]bool) error {
 	dir := s.projectDir(project)
 	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	for _, e := range entries {
@@ -97,8 +99,30 @@ func (s *Service) Prune(project string, validSteps map[string]bool) error {
 			continue
 		}
 		name := stepNameFromFile(e.Name())
-		if !validSteps[name] {
+		if validSteps == nil || !validSteps[name] {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+
+	artDir := s.artifactDir(project)
+	artEntries, err := os.ReadDir(artDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range artEntries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), artifactSuffix) {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), artifactSuffix)
+		name := base
+		if j := strings.LastIndex(base, "."); j >= 0 {
+			name = base[:j]
+		}
+		if validSteps == nil || !validSteps[name] {
+			_ = os.Remove(filepath.Join(artDir, e.Name()))
 		}
 	}
 	return nil
@@ -136,10 +160,20 @@ func (s *Service) List(project string) ([]string, error) {
 	return out, nil
 }
 
-// Verify checks whether a step's output is still present on disk, so a cache
-// hit is only trusted if the step's effects actually exist (e.g. in Docker
-// where a layer rebuild may have removed installed files).
-func Verify(step domain.Step) bool {
+// Verify checks whether a cached step's outputs are still present on disk, so
+// a cache hit is only trusted if the step's effects actually exist (e.g. in
+// Docker where a layer rebuild may have removed installed files).
+//
+// Verification is inferred — no manual cache declarations:
+//   - If the entry recorded Outputs (auto-discovered shell side effects),
+//     those paths are authoritative.
+//   - apt install steps verify via dpkg's package database.
+//   - source steps fall back to Verify paths, then to a non-empty prefix.
+//   - binary steps fall back to Verify paths, then to copy destinations.
+func Verify(step domain.Step, cf CacheFile) bool {
+	if len(cf.Outputs) > 0 {
+		return pathsExist(cf.Outputs)
+	}
 	switch step.Kind {
 	case domain.StepKindApt:
 		if step.Apt != nil && step.Apt.Action == "install" {
@@ -155,19 +189,9 @@ func Verify(step domain.Step) bool {
 		if step.Source == nil {
 			return false
 		}
-		checks := step.Source.CacheVerify
-		if len(checks) == 0 {
-			checks = step.Source.Verify
+		if len(step.Source.Verify) > 0 {
+			return allFilesExist(verifyPaths(step.Source.Verify))
 		}
-		if len(checks) > 0 {
-			for _, c := range checks {
-				if !fileExists(c.File) {
-					return false
-				}
-			}
-			return true
-		}
-		// Fall back to the install prefix existing and non-empty.
 		if step.Source.Build != nil && step.Source.Build.Prefix != "" {
 			return dirNonEmpty(step.Source.Build.Prefix)
 		}
@@ -176,61 +200,101 @@ func Verify(step domain.Step) bool {
 		if step.Binary == nil {
 			return false
 		}
-		checks := step.Binary.CacheVerify
-		if len(checks) == 0 {
-			checks = step.Binary.Verify
+		if len(step.Binary.Verify) > 0 {
+			return allFilesExist(verifyPaths(step.Binary.Verify))
 		}
-		if len(checks) > 0 {
-			for _, c := range checks {
-				if !fileExists(c.File) {
-					return false
-				}
-			}
-			return true
-		}
-		if step.Binary.Install != nil {
+		if step.Binary.Install != nil && len(step.Binary.Install.Copy) > 0 {
+			dests := make([]string, 0, len(step.Binary.Install.Copy))
 			for _, c := range step.Binary.Install.Copy {
-				if !fileExists(c.To) {
-					return false
-				}
+				dests = append(dests, c.To)
 			}
-			return true
+			return allFilesExist(dests)
 		}
 		return false
 	case domain.StepKindShell:
-		if step.Shell == nil || len(step.Shell.CacheVerify) == 0 {
-			return false // shell steps need explicit cache_verify to be cacheable
-		}
-		for _, c := range step.Shell.CacheVerify {
-			if !fileExists(c.File) {
-				return false
-			}
-		}
-		return true
+		// Legacy entry without recorded outputs: cannot be verified.
+		return false
 	default:
 		return false // verify steps are cheap and always run
 	}
 }
 
-// Cacheable reports whether a step can be cached at all (independent of whether
-// a valid cache entry currently exists).
+// OutputPaths returns the filesystem paths a successful step is expected to
+// produce, used both for cache verification and for artifact persistence.
+// Shell steps return nil here — their outputs come from the automatic
+// snapshot diff and travel through CacheFile.Outputs instead.
+func OutputPaths(step domain.Step) []string {
+	switch step.Kind {
+	case domain.StepKindSource:
+		if step.Source == nil {
+			return nil
+		}
+		var out []string
+		out = append(out, verifyPaths(step.Source.Verify)...)
+		if step.Source.Build != nil && step.Source.Build.Prefix != "" {
+			out = append(out, step.Source.Build.Prefix)
+		}
+		return out
+	case domain.StepKindBinary:
+		if step.Binary == nil {
+			return nil
+		}
+		out := verifyPaths(step.Binary.Verify)
+		if step.Binary.Install != nil {
+			for _, c := range step.Binary.Install.Copy {
+				out = append(out, c.To)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// Cacheable reports whether a step can be cached at all (independent of
+// whether a valid cache entry currently exists). Shell steps are always
+// cacheable — their outputs are discovered automatically by snapshot diffing.
 func Cacheable(step domain.Step) bool {
 	switch step.Kind {
 	case domain.StepKindApt:
 		return step.Apt != nil && step.Apt.Action == "install"
 	case domain.StepKindSource:
 		return step.Source != nil &&
-			(len(step.Source.CacheVerify) > 0 || len(step.Source.Verify) > 0 ||
+			(len(step.Source.Verify) > 0 ||
 				(step.Source.Build != nil && step.Source.Build.Prefix != ""))
 	case domain.StepKindBinary:
 		return step.Binary != nil &&
-			(len(step.Binary.CacheVerify) > 0 || len(step.Binary.Verify) > 0 ||
+			(len(step.Binary.Verify) > 0 ||
 				(step.Binary.Install != nil && len(step.Binary.Install.Copy) > 0))
 	case domain.StepKindShell:
-		return step.Shell != nil && len(step.Shell.CacheVerify) > 0
+		return step.Shell != nil
 	default:
 		return false
 	}
+}
+
+func verifyPaths(checks []domain.VerifyCheck) []string {
+	if len(checks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(checks))
+	for _, c := range checks {
+		out = append(out, c.File)
+	}
+	return out
+}
+
+func pathsExist(paths []string) bool {
+	return allFilesExist(paths)
+}
+
+func allFilesExist(paths []string) bool {
+	for _, p := range paths {
+		if !fileExists(p) {
+			return false
+		}
+	}
+	return true
 }
 
 func dpkgInstalled(pkg string) bool {

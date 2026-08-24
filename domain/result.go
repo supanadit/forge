@@ -36,6 +36,11 @@ type StepResult struct {
 	// Prefix is the install prefix for source steps,
 	// referenceable via ${step:NAME} interpolation.
 	Prefix string
+	// Outputs lists filesystem paths the step created or modified, discovered
+	// automatically by diffing filesystem snapshots around the step (shell
+	// steps). The build cache persists them so a later run can verify a
+	// cached result without manual cache_verify declarations.
+	Outputs []string
 	// CacheKey is the content hash that uniquely identifies this step's inputs.
 	// Dependent steps use it in their own cache keys for transitive invalidation.
 	CacheKey string

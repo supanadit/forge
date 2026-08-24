@@ -110,6 +110,25 @@ and `${step:NAME.prefix}` reference a prior step's fetched source dir / install
 prefix. Shell-style expansions like `${VAR%%.*}` are left verbatim for `bash`
 to resolve in `shell` commands and `condition` expressions.
 
+## Build cache
+
+Caching is fully automatic — no `cache_verify` declarations. A step's cache
+key hashes its config, the vars it references, and its dependencies' keys; a
+hit is trusted only if the step's outputs still exist:
+
+- `apt` install steps verify via dpkg.
+- `source` steps verify via their install prefix or `verify` paths.
+- `binary` steps verify via their copy destinations or `verify` paths.
+- `shell` steps always cache: outputs (files/dirs created or modified) are
+  discovered by diffing filesystem snapshots taken around the commands.
+
+On a hit whose files vanished (e.g. a Docker layer rebuild reset the
+filesystem), forge restores the step from an artifact archive stored under
+`<cache-dir>/artifacts/<project>/` before falling back to re-execution. With
+BuildKit, mount the cache dir (`RUN --mount=type=cache,target=/var/cache/forge
+... --cache-dir /var/cache/forge`) so artifacts survive across builds; CI
+cache export (`--cache-to type=gha,mode=max`) persists them too.
+
 ## Architecture
 
 Clean architecture following the [go-clean-arch](https://github.com/bxcodec/go-clean-arch) conventions
