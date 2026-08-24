@@ -64,6 +64,7 @@ type manifestDTO struct {
 type projectDTO struct {
 	Name        string `toml:"name"`
 	Description string `toml:"description"`
+	NoCache     bool   `toml:"no_cache"`
 }
 
 type includeDTO struct {
@@ -203,6 +204,7 @@ func (rs *resolver) resolveFile(ctx context.Context, path string) (parsedDoc, er
 		Project: domain.Project{
 			Name:        dto.Project.Name,
 			Description: dto.Project.Description,
+			NoCache:     dto.Project.NoCache,
 		},
 		Vars:     dto.Vars,
 		Includes: []string{path},

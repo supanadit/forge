@@ -20,4 +20,5 @@ type Manifest struct {
 type Project struct {
 	Name        string
 	Description string
+	NoCache     bool
 }

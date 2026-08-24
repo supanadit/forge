@@ -54,6 +54,7 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 	if err != nil {
 		return domain.BuildResult{}, err
 	}
+	opts.NoCache = opts.NoCache || m.Project.NoCache
 
 	plan, err := s.scheduler.Schedule(m.Steps)
 	if err != nil {
