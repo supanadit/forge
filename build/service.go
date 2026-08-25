@@ -151,8 +151,8 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 		return domain.BuildResult{Steps: results, TotalDuration: time.Since(start)}, firstErr
 	}
 
-	if cleaner, ok := s.executor.(interface{ RunCleanup(ctx context.Context, vars map[string]string, verbose bool) error }); ok {
-		if err := cleaner.RunCleanup(ctx, vars, opts.Verbose); err != nil {
+	if cleaner, ok := s.executor.(interface{ RunCleanup(ctx context.Context, vars map[string]string, verbose bool, noCache bool) error }); ok {
+		if err := cleaner.RunCleanup(ctx, vars, opts.Verbose, opts.NoCache); err != nil {
 			return domain.BuildResult{Steps: results, TotalDuration: time.Since(start)}, err
 		}
 	}

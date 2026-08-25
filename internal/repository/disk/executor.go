@@ -2,6 +2,7 @@ package disk
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,8 +111,18 @@ func (e *Executor) recordAptCleanup(apt *domain.AptInstall) {
 }
 
 // RunCleanup runs the apt cleanup lifecycle once, aggregating build/runtime
-// packages across all collected apt installs.
-func (e *Executor) RunCleanup(ctx context.Context, vars map[string]string, verbose bool) error {
+// packages across all collected apt installs. When noCache is true, it also
+// removes the fetch cache (downloaded archives + extracted source trees) so a
+// throwaway build leaves no build artifacts behind.
+func (e *Executor) RunCleanup(ctx context.Context, vars map[string]string, verbose bool, noCache bool) error {
+	// When no_cache is set, remove the fetch cache first so no build sources
+	// remain, regardless of apt cleanup outcome.
+	if noCache {
+		if err := os.RemoveAll(e.cacheDir); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove fetch cache %s: %w", e.cacheDir, err)
+		}
+	}
+
 	e.aptMu.Lock()
 	cleanups := make([]*domain.AptInstall, len(e.aptCleanups))
 	copy(cleanups, e.aptCleanups)
@@ -138,6 +149,6 @@ func (e *Executor) RunCleanup(ctx context.Context, vars map[string]string, verbo
 		}
 	}
 
-	// Run the cleanup lifecycle once with the aggregated lists.
+	// Run the apt cleanup lifecycle once with the aggregated lists.
 	return e.cleanupApt(ctx, allBuild, allRuntime, verbose)
 }

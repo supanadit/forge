@@ -113,3 +113,15 @@ func (e *CachedExecutor) exec(ctx context.Context, step domain.Step, sctx domain
 func (e *CachedExecutor) Prune(project string, validSteps map[string]bool) {
 	_ = e.cache.Prune(project, validSteps)
 }
+
+// RunCleanup forwards the post-build cleanup to the inner executor. It is
+// called after all steps complete; when noCache is true the inner executor
+// also removes its fetch cache.
+func (e *CachedExecutor) RunCleanup(ctx context.Context, vars map[string]string, verbose bool, noCache bool) error {
+	if cleaner, ok := e.inner.(interface {
+		RunCleanup(ctx context.Context, vars map[string]string, verbose bool, noCache bool) error
+	}); ok {
+		return cleaner.RunCleanup(ctx, vars, verbose, noCache)
+	}
+	return nil
+}
