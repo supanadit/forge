@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -59,6 +57,7 @@ type manifestDTO struct {
 	Vars     map[string]string `toml:"vars"`
 	Includes []includeDTO      `toml:"includes"`
 	Steps    []stepDTO         `toml:"steps"`
+	Components []componentsDTO `toml:"components"`
 }
 
 type projectDTO struct {
@@ -79,82 +78,105 @@ type stepDTO struct {
 	Run       string   `toml:"run"`
 	Use       string   `toml:"use"`
 
-	// apt
-	Action              string                `toml:"action"`
-	Packages            []string              `toml:"packages"`
-	PackagesConditional []conditionalPackages `toml:"packages_conditional"`
-
-	// fetch (source + binary)
-	Fetch *fetchDTO `toml:"fetch"`
-
-	// source build
-	Build   *buildDTO         `toml:"build"`
-	Install *installDTO       `toml:"install"`
-	From    string            `toml:"from"`
-	Dir     string            `toml:"dir"`
-	Env     map[string]string `toml:"env"`
+	// install (universal: apt / source / binary)
+	Install *installOpDTO `toml:"install"`
 
 	// shell
-	Commands []string `toml:"commands"`
+	Commands []string          `toml:"commands"`
+	Env      map[string]string `toml:"env"`
+	Dir      string            `toml:"dir"`
 
 	// verify
 	Checks []verifyCheckDTO `toml:"checks"`
 	Verify []verifyCheckDTO `toml:"verify"`
 }
 
-// installDTO accepts either `install = true` (source steps) or
-// `install = { copy = [...] }` (binary steps) via a custom unmarshaler.
-type installDTO struct {
-	Enabled bool
-	Copy    []copyDTO
+// componentsDTO is the raw TOML representation of a component-oriented step.
+// It mirrors stepDTO but uses `needs` (instead of `depends_on`) and an ordered
+// `ops` list that is the entire lifecycle.
+type componentsDTO struct {
+	Name  string   `toml:"name"`
+	Needs []string `toml:"needs"`
+	Ops   []operationDTO `toml:"ops"`
 }
 
-func (i *installDTO) UnmarshalTOML(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
-	if b, err := strconv.ParseBool(trimmed); err == nil {
-		i.Enabled = b
+// installOpDTO is the polymorphic universal install operation: exactly one of
+// apt, source, or binary is set.
+type installOpDTO struct {
+	Apt    *aptInstallDTO    `toml:"apt"`
+	Source *sourceInstallDTO `toml:"source"`
+	Binary *binaryInstallDTO `toml:"binary"`
+}
+
+func (i *installOpDTO) UnmarshalTOML(data []byte) error {
+	// data is the full inline table WITH braces, e.g. `{ type = "git", ... }`.
+	// Wrap it as a valid table so go-toml can decode it.
+	var raw struct {
+		Install struct {
+			Apt    *aptInstallDTO    `toml:"apt"`
+			Source *sourceInstallDTO `toml:"source"`
+			Binary *binaryInstallDTO `toml:"binary"`
+		} `toml:"install"`
+	}
+	if err := toml.Unmarshal([]byte("install = "+string(data)), &raw); err == nil {
+		i.Apt = raw.Install.Apt
+		i.Source = raw.Install.Source
+		i.Binary = raw.Install.Binary
 		return nil
 	}
-	var raw struct {
-		Val struct {
-			Copy []copyDTO `toml:"copy"`
-		} `toml:"val"`
+	// Flat form: `{ type = "archive", source = "...", strategy = "..." }`.
+	// Here `source` is the plain URL string at the top level, not a nested
+	// table, so the nested decode above fails. Map the whole inline table onto
+	// the source install instead.
+	var flat struct {
+		Install sourceInstallDTO `toml:"install"`
 	}
-	if err := toml.Unmarshal([]byte("val = "+trimmed), &raw); err != nil {
+	if err := toml.Unmarshal([]byte("install = "+string(data)), &flat); err != nil {
 		return err
 	}
-	i.Enabled = len(raw.Val.Copy) > 0
-	i.Copy = raw.Val.Copy
+	i.Source = &flat.Install
 	return nil
 }
 
-type conditionalPackages struct {
-	Condition string   `toml:"condition"`
-	Packages  []string `toml:"packages"`
+type aptInstallDTO struct {
+	Build       []string            `toml:"build"`
+	Runtime     []string            `toml:"runtime"`
+	Conditional []conditionalAptDTO `toml:"conditional"`
 }
 
-type fetchDTO struct {
-	Type string `toml:"type"`
-
-	// archive
-	URL          string `toml:"url"`
-	ChecksumType string `toml:"checksum_type"`
-	Checksum     string `toml:"checksum"`
-	Dest         string `toml:"dest"`
-
-	// git
-	Ref   string `toml:"ref"`
-	Depth int    `toml:"depth"`
+type conditionalAptDTO struct {
+	Category string              `toml:"category"`
+	When     versionConditionDTO `toml:"when"`
+	Packages []string            `toml:"packages"`
 }
 
-type buildDTO struct {
+type versionConditionDTO struct {
+	Var string `toml:"var"`
+	Gte string `toml:"gte"`
+	Lte string `toml:"lte"`
+	Gt  string `toml:"gt"`
+	Lt  string `toml:"lt"`
+	Eq  string `toml:"eq"`
+}
+
+type sourceInstallDTO struct {
+	Type          string            `toml:"type"`
+	Source        string            `toml:"source"`
+	Ref           string            `toml:"ref"`
 	Strategy      string            `toml:"strategy"`
-	Prefix        string            `toml:"prefix"`
 	Flags         []string          `toml:"flags"`
-	Env           map[string]string `toml:"env"`
-	MakeFlags     []string          `toml:"make_flags"`
+	Prefix        string            `toml:"prefix"`
 	Jobs          int               `toml:"jobs"`
 	InstallTarget string            `toml:"install_target"`
+	Env           map[string]string `toml:"env"`
+	Verify        []verifyCheckDTO  `toml:"verify"`
+	Before        []operationDTO    `toml:"before"`
+	After         []operationDTO    `toml:"after"`
+}
+
+type binaryInstallDTO struct {
+	Source string    `toml:"source"`
+	Copy   []copyDTO `toml:"copy"`
 }
 
 type copyDTO struct {
@@ -165,6 +187,57 @@ type copyDTO struct {
 
 type verifyCheckDTO struct {
 	File string `toml:"file"`
+}
+
+type operationDTO struct {
+	Raw      string       `toml:"raw"`
+	User     *userOpDTO   `toml:"user"`
+	Mkdir    []mkdirOpDTO `toml:"mkdir"`
+	Chown    []chownOpDTO `toml:"chown"`
+	Chmod    []chmodOpDTO `toml:"chmod"`
+	Copy     []copyDTO    `toml:"copy"`
+	Touch    []string     `toml:"touch"`
+	Apt      *aptOpDTO    `toml:"apt"`
+	Install  *installOpDTO  `toml:"install"`
+	Verify   []verifyCheckDTO `toml:"verify"`
+	Generate *generateOpDTO `toml:"generate"`
+}
+
+type generateOpDTO struct {
+	Tool  string   `toml:"tool"`
+	Input string   `toml:"input"`
+	Out   string   `toml:"out"`
+	Flags []string `toml:"flags"`
+}
+
+type aptOpDTO struct {
+	Action   string   `toml:"action"`
+	Packages []string `toml:"packages"`
+}
+
+type userOpDTO struct {
+	Name       string `toml:"name"`
+	CreateHome bool   `toml:"create_home"`
+	System     bool   `toml:"system"`
+	Shell      string `toml:"shell"`
+}
+
+type mkdirOpDTO struct {
+	Path  string `toml:"path"`
+	Mode  string `toml:"mode"`
+	Owner string `toml:"owner"`
+}
+
+type chownOpDTO struct {
+	Path      string `toml:"path"`
+	Owner     string `toml:"owner"`
+	Group     string `toml:"group"`
+	Recursive bool   `toml:"recursive"`
+}
+
+type chmodOpDTO struct {
+	Path string `toml:"path"`
+	Mode string `toml:"mode"`
 }
 
 // parsedDoc is the resolved result of a single manifest file.
@@ -262,6 +335,14 @@ func (rs *resolver) resolveFile(ctx context.Context, path string) (parsedDoc, er
 		doc.Steps = append(doc.Steps, step)
 	}
 
+	for _, c := range dto.Components {
+		step, err := translateComponent(c)
+		if err != nil {
+			return parsedDoc{}, err
+		}
+		doc.Steps = append(doc.Steps, step)
+	}
+
 	return doc, nil
 }
 
@@ -275,74 +356,29 @@ func (rs *resolver) includePath(parent, inc string) (string, error) {
 	return filepath.Join(filepath.Dir(parent), inc), nil
 }
 
-// mapStep converts a TOML stepDTO into a domain.Step.
+// mapStep converts a legacy TOML stepDTO into a domain.Step, mapping the
+// kind-specific fields onto the ordered ops model.
 func mapStep(d stepDTO) (domain.Step, error) {
 	st := domain.Step{
 		Name:      d.Name,
 		DependsOn: d.DependsOn,
-		Use:       d.Use,
 	}
 
-	switch domain.StepKind(d.Run) {
-	case domain.StepKindApt:
-		st.Kind = domain.StepKindApt
-		st.Apt = &domain.AptStep{
-			Action:   d.Action,
-			Packages: d.Packages,
+	switch d.Run {
+	case "install":
+		if d.Install == nil {
+			return domain.Step{}, fmt.Errorf("step %q: install requires an install table", d.Name)
 		}
-		for _, cp := range d.PackagesConditional {
-			st.Apt.PackagesConditional = append(st.Apt.PackagesConditional, domain.ConditionalPackages{
-				Condition: cp.Condition,
-				Packages:  cp.Packages,
-			})
+		st.Ops = []domain.Operation{{Install: mapInstall(d.Install)}}
+	case "shell":
+		for _, cmd := range d.Commands {
+			st.Ops = append(st.Ops, domain.Operation{Raw: cmd})
 		}
-	case domain.StepKindSource:
-		st.Kind = domain.StepKindSource
-		fetch, err := mapFetch(d.Fetch)
-		if err != nil {
-			return domain.Step{}, err
+		if len(d.Verify) > 0 {
+			st.Ops = append(st.Ops, domain.Operation{Verify: mapVerify(d.Verify)})
 		}
-		build, err := mapBuild(d.Build)
-		if err != nil {
-			return domain.Step{}, err
-		}
-		st.Source = &domain.SourceStep{
-			Fetch:   fetch,
-			Build:   build,
-			Install: d.Install != nil && d.Install.Enabled,
-			From:    d.From,
-			Dir:     d.Dir,
-			Env:     d.Env,
-			Verify:  mapVerify(d.Verify),
-		}
-	case domain.StepKindBinary:
-		st.Kind = domain.StepKindBinary
-		fetch, err := mapFetch(d.Fetch)
-		if err != nil {
-			return domain.Step{}, err
-		}
-		st.Binary = &domain.BinaryStep{
-			Fetch:  fetch,
-			Verify: mapVerify(d.Verify),
-		}
-		if d.Install != nil {
-			bi := &domain.BinaryInstall{}
-			for _, c := range d.Install.Copy {
-				bi.Copy = append(bi.Copy, domain.CopySpec{From: c.From, To: c.To, Mode: c.Mode})
-			}
-			st.Binary.Install = bi
-		}
-	case domain.StepKindShell:
-		st.Kind = domain.StepKindShell
-		st.Shell = &domain.ShellStep{
-			Commands: d.Commands,
-			Env:      d.Env,
-			Dir:      d.Dir,
-			Verify:   mapVerify(d.Verify),
-		}
-	case domain.StepKindVerify:
-		st.Kind = domain.StepKindVerify
-		st.Verify = &domain.VerifyStep{Checks: mapVerify(d.Checks)}
+	case "verify":
+		st.Ops = []domain.Operation{{Verify: mapVerify(d.Checks)}}
 	default:
 		return domain.Step{}, fmt.Errorf("step %q: %w: %q", d.Name, domain.ErrUnknownStepKind, d.Run)
 	}
@@ -350,45 +386,169 @@ func mapStep(d stepDTO) (domain.Step, error) {
 	return st, nil
 }
 
-func mapFetch(d *fetchDTO) (*domain.FetchSpec, error) {
-	if d == nil {
-		return nil, nil
+// translateComponent converts a component-oriented [[components]] entry into a
+// domain.Step whose ops list is the entire lifecycle.
+func translateComponent(c componentsDTO) (domain.Step, error) {
+	st := domain.Step{
+		Name:      c.Name,
+		DependsOn: c.Needs,
 	}
-	spec := &domain.FetchSpec{Type: domain.FetchType(d.Type)}
-	switch spec.Type {
-	case domain.FetchTypeArchive:
-		spec.Archive = &domain.ArchiveFetch{
-			URL:          d.URL,
-			ChecksumType: d.ChecksumType,
-			Checksum:     d.Checksum,
-			Dest:         d.Dest,
-		}
-	case domain.FetchTypeGit:
-		spec.Git = &domain.GitFetch{
-			URL:   d.URL,
-			Ref:   d.Ref,
-			Depth: d.Depth,
-			Dest:  d.Dest,
-		}
-	default:
-		return nil, fmt.Errorf("unknown fetch type %q", d.Type)
+	ops, err := mapOperations(c.Ops)
+	if err != nil {
+		return domain.Step{}, err
 	}
-	return spec, nil
+	if err := validateOpsApt(ops, c.Name); err != nil {
+		return domain.Step{}, err
+	}
+	st.Ops = ops
+	return st, nil
 }
 
-func mapBuild(d *buildDTO) (*domain.BuildSpec, error) {
-	if d == nil {
-		return nil, nil
+// validateOpsApt rejects invalid apt install configurations in a step: a
+// package appearing in both build and runtime, a conditional entry whose
+// category is not "build" or "runtime", or a conditional package that is not
+// listed in its category.
+func validateOpsApt(ops []domain.Operation, name string) error {
+	for _, op := range ops {
+		if op.Install == nil || op.Install.Apt == nil {
+			continue
+		}
+		apt := op.Install.Apt
+		build := map[string]bool{}
+		for _, p := range apt.Build {
+			build[p] = true
+		}
+		runtime := map[string]bool{}
+		for _, p := range apt.Runtime {
+			runtime[p] = true
+		}
+		for p := range build {
+			if runtime[p] {
+				return fmt.Errorf("step %q: apt package %q appears in both build and runtime", name, p)
+			}
+		}
+		for _, c := range apt.Conditional {
+			if c.Category != "build" && c.Category != "runtime" {
+				return fmt.Errorf("step %q: apt conditional category must be \"build\" or \"runtime\", got %q", name, c.Category)
+			}
+			allowed := build
+			if c.Category == "runtime" {
+				allowed = runtime
+			}
+			for _, p := range c.Packages {
+				if !allowed[p] {
+					return fmt.Errorf("step %q: apt conditional package %q is not listed in %s", name, p, c.Category)
+				}
+			}
+		}
 	}
-	return &domain.BuildSpec{
-		Strategy:      domain.BuildStrategy(d.Strategy),
-		Prefix:        d.Prefix,
-		Flags:         d.Flags,
-		Env:           d.Env,
-		MakeFlags:     d.MakeFlags,
-		Jobs:          d.Jobs,
-		InstallTarget: d.InstallTarget,
-	}, nil
+	return nil
+}
+
+func mapOperations(dtos []operationDTO) ([]domain.Operation, error) {
+	var out []domain.Operation
+	for _, d := range dtos {
+		op := domain.Operation{
+			Raw:   d.Raw,
+			Touch: d.Touch,
+		}
+		if d.User != nil {
+			op.User = &domain.UserOp{Name: d.User.Name, CreateHome: d.User.CreateHome, System: d.User.System, Shell: d.User.Shell}
+		}
+		for _, m := range d.Mkdir {
+			op.Mkdir = append(op.Mkdir, domain.MkdirOp{Path: m.Path, Mode: m.Mode, Owner: m.Owner})
+		}
+		for _, c := range d.Chown {
+			op.Chown = append(op.Chown, domain.ChownOp{Path: c.Path, Owner: c.Owner, Group: c.Group, Recursive: c.Recursive})
+		}
+		for _, c := range d.Chmod {
+			op.Chmod = append(op.Chmod, domain.ChmodOp{Path: c.Path, Mode: c.Mode})
+		}
+		for _, c := range d.Copy {
+			op.Copy = append(op.Copy, domain.CopyOp{From: c.From, To: c.To, Mode: c.Mode})
+		}
+		if d.Apt != nil {
+			op.Apt = &domain.AptOp{Action: d.Apt.Action, Packages: d.Apt.Packages}
+		}
+		if d.Install != nil {
+			op.Install = &domain.InstallOp{
+				Apt:    mapAptInstall(d.Install.Apt),
+				Source: mapSourceInstall(d.Install.Source),
+				Binary: mapBinaryInstall(d.Install.Binary),
+			}
+		}
+		if len(d.Verify) > 0 {
+			op.Verify = mapVerify(d.Verify)
+		}
+		if d.Generate != nil {
+			op.Generate = &domain.GenerateOp{Tool: d.Generate.Tool, Input: d.Generate.Input, Out: d.Generate.Out, Flags: d.Generate.Flags}
+		}
+		out = append(out, op)
+	}
+	return out, nil
+}
+
+// mapOperationsOrNil maps operation DTOs to domain operations, returning nil
+// when the list is empty.
+func mapOperationsOrNil(dtos []operationDTO) []domain.Operation {
+	if len(dtos) == 0 {
+		return nil
+	}
+	ops, err := mapOperations(dtos)
+	if err != nil {
+		return nil
+	}
+	return ops
+}
+
+func mapInstall(d *installOpDTO) *domain.InstallOp {
+	if d == nil {
+		return nil
+	}
+	return &domain.InstallOp{
+		Apt:    mapAptInstall(d.Apt),
+		Source: mapSourceInstall(d.Source),
+		Binary: mapBinaryInstall(d.Binary),
+	}
+}
+
+func mapAptInstall(d *aptInstallDTO) *domain.AptInstall {
+	if d == nil {
+		return nil
+	}
+	ai := &domain.AptInstall{Build: d.Build, Runtime: d.Runtime}
+	for _, c := range d.Conditional {
+		ai.Conditional = append(ai.Conditional, domain.ConditionalApt{
+			Category: c.Category,
+			When: domain.VersionCondition{Var: c.When.Var, Gte: c.When.Gte, Lte: c.When.Lte, Gt: c.When.Gt, Lt: c.When.Lt, Eq: c.When.Eq},
+			Packages: c.Packages,
+		})
+	}
+	return ai
+}
+
+func mapSourceInstall(d *sourceInstallDTO) *domain.SourceInstall {
+	if d == nil {
+		return nil
+	}
+	return &domain.SourceInstall{
+		Type: d.Type, Source: d.Source, Ref: d.Ref, Strategy: d.Strategy,
+		Flags: d.Flags, Prefix: d.Prefix, Jobs: d.Jobs, InstallTarget: d.InstallTarget,
+		Env: d.Env, Verify: mapVerify(d.Verify),
+		Before: mapOperationsOrNil(d.Before),
+		After:  mapOperationsOrNil(d.After),
+	}
+}
+
+func mapBinaryInstall(d *binaryInstallDTO) *domain.BinaryInstall {
+	if d == nil {
+		return nil
+	}
+	bi := &domain.BinaryInstall{Source: d.Source}
+	for _, c := range d.Copy {
+		bi.Copy = append(bi.Copy, domain.CopySpec{From: c.From, To: c.To, Mode: c.Mode})
+	}
+	return bi
 }
 
 func mapVerify(d []verifyCheckDTO) []domain.VerifyCheck {

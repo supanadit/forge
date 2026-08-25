@@ -43,39 +43,15 @@ func (s *Service) Validate(ctx context.Context, path string) (domain.ValidationR
 		if st.Name == "" {
 			res.Errors = append(res.Errors, "step has an empty name")
 		}
-		switch st.Kind {
-		case domain.StepKindApt:
-			if st.Apt == nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("step %q is kind %q but has no apt config", st.Name, st.Kind))
-			} else if st.Apt.Action == "" {
-				res.Errors = append(res.Errors, fmt.Sprintf("apt step %q has no action (install/remove/purge)", st.Name))
+		if len(st.Ops) == 0 {
+			res.Errors = append(res.Errors, fmt.Sprintf("step %q has no operations", st.Name))
+		}
+		for _, op := range st.Ops {
+			if op.Install != nil && op.Install.Apt != nil {
+				if len(op.Install.Apt.Build) == 0 && len(op.Install.Apt.Runtime) == 0 {
+					res.Errors = append(res.Errors, fmt.Sprintf("step %q: apt install requires at least one build or runtime package", st.Name))
+				}
 			}
-		case domain.StepKindSource:
-			if st.Source == nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("step %q is kind %q but has no source config", st.Name, st.Kind))
-			} else if st.Source.Fetch == nil && st.Source.From == "" {
-				res.Errors = append(res.Errors, fmt.Sprintf("source step %q must declare fetch or from", st.Name))
-			} else if st.Source.Fetch != nil && st.Source.Fetch.Type == "" {
-				res.Errors = append(res.Errors, fmt.Sprintf("source step %q has no fetch type", st.Name))
-			}
-		case domain.StepKindBinary:
-			if st.Binary == nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("step %q is kind %q but has no binary config", st.Name, st.Kind))
-			} else if st.Binary.Fetch == nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("binary step %q has no fetch config", st.Name))
-			}
-		case domain.StepKindShell:
-			if st.Shell == nil {
-				res.Errors = append(res.Errors, fmt.Sprintf("step %q is kind %q but has no shell config", st.Name, st.Kind))
-			} else if len(st.Shell.Commands) == 0 {
-				res.Errors = append(res.Errors, fmt.Sprintf("shell step %q has no commands", st.Name))
-			}
-		case domain.StepKindVerify:
-			if st.Verify == nil || len(st.Verify.Checks) == 0 {
-				res.Errors = append(res.Errors, fmt.Sprintf("verify step %q has no checks", st.Name))
-			}
-		default:
-			res.Errors = append(res.Errors, fmt.Sprintf("step %q has unsupported kind %q", st.Name, st.Kind))
 		}
 	}
 

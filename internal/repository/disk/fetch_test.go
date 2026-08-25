@@ -88,16 +88,12 @@ func TestExecute_BinaryDownloadAndCopy(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "usr", "local", "bin", "pgmetrics")
 	step := domain.Step{
 		Name: "metrics",
-		Kind: domain.StepKindBinary,
-		Binary: &domain.BinaryStep{
-			Fetch: &domain.FetchSpec{
-				Type:    domain.FetchTypeArchive,
-				Archive: &domain.ArchiveFetch{URL: srv.URL + "/tools.tar.gz"},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{
+			Binary: &domain.BinaryInstall{
+				Source: srv.URL + "/tools.tar.gz",
+				Copy:   []domain.CopySpec{{From: "tools/pgmetrics", To: dest, Mode: "0755"}},
 			},
-			Install: &domain.BinaryInstall{
-				Copy: []domain.CopySpec{{From: "tools/pgmetrics", To: dest, Mode: "0755"}},
-			},
-		},
+		}}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
 	require.NoError(t, err)

@@ -56,15 +56,11 @@ func TestService_List(t *testing.T) {
 }
 
 func TestCacheable(t *testing.T) {
-	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindVerify}))
-	// Shell steps are always cacheable — outputs are inferred by snapshot diff.
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}))
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindApt, Apt: &domain.AptStep{Action: "install", Packages: []string{"curl"}}}))
-	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindApt, Apt: &domain.AptStep{Action: "remove"}}))
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{Verify: []domain.VerifyCheck{{File: "/x"}}}}))
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{Build: &domain.BuildSpec{Prefix: "/usr/local/pgsql"}}}))
-	assert.False(t, Cacheable(domain.Step{Kind: domain.StepKindSource, Source: &domain.SourceStep{}}))
-	assert.True(t, Cacheable(domain.Step{Kind: domain.StepKindBinary, Binary: &domain.BinaryStep{Install: &domain.BinaryInstall{Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/m"}}}}}))
+	assert.False(t, Cacheable(domain.Step{}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Install: &domain.InstallOp{Apt: &domain.AptInstall{Runtime: []string{"curl"}}}}}}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: "/x"}}}}}}}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Verify: []domain.VerifyCheck{{File: "/x"}}}}}))
 }
 
 // fakeInner is a StepExecutor that records how many times it was called.
@@ -85,9 +81,8 @@ func TestCachedExecutor_HitSkipsInner(t *testing.T) {
 	ce := NewCachedExecutor(inner, svc)
 
 	step := domain.Step{
-		Name:  "link",
-		Kind:  domain.StepKindShell,
-		Shell: &domain.ShellStep{},
+		Name: "link",
+		Ops:  []domain.Operation{{Raw: "ln -s x y"}},
 	}
 	sctx := domain.StepContext{Vars: map[string]string{}, Previous: map[string]domain.StepResult{}, Project: "proj"}
 
@@ -112,7 +107,7 @@ func TestCachedExecutor_NoCache(t *testing.T) {
 	require.NoError(t, err)
 	inner := &fakeInner{}
 	ce := NewCachedExecutor(inner, svc)
-	step := domain.Step{Name: "x", Kind: domain.StepKindVerify}
+	step := domain.Step{Name: "x", Ops: []domain.Operation{{Raw: "echo hi"}}}
 	sctx := domain.StepContext{NoCache: true, Project: "proj"}
 	_, err = ce.Execute(context.Background(), step, sctx)
 	require.NoError(t, err)

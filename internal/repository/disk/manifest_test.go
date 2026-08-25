@@ -47,91 +47,82 @@ commands = ["echo hi"]
 	assert.Equal(t, "demo", m.Project.Name)
 	assert.Equal(t, "1.0", m.Vars["VERSION"])
 	require.Len(t, m.Steps, 1)
-	assert.Equal(t, domain.StepKindShell, m.Steps[0].Kind)
-	assert.Equal(t, []string{"echo hi"}, m.Steps[0].Shell.Commands)
+	assert.Equal(t, "echo hi", m.Steps[0].Ops[0].Raw)
 }
 
-func TestLoad_SourceStep(t *testing.T) {
+func TestLoad_InstallComponent(t *testing.T) {
 	dir := t.TempDir()
 	path := writeManifest(t, dir, "forge.toml", `
 [project]
 name = "pg"
 
-[[steps]]
+[[components]]
 name = "build-pg"
-run = "source"
-fetch = { type = "archive", url = "https://x/postgresql.tar.gz" }
-build = { strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"], install_target = "altinstall" }
-install = true
-verify = [{ file = "/usr/local/pgsql/bin/postgres" }]
+ops = [
+  { install = { source = { type = "archive", source = "https://x/postgresql.tar.gz", strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"], install_target = "altinstall", verify = [{ file = "/usr/local/pgsql/bin/postgres" }] } } },
+]
 `)
 	r := NewManifestRepository()
 	m, err := r.Load(context.Background(), path)
 	require.NoError(t, err)
 	require.Len(t, m.Steps, 1)
-	src := m.Steps[0].Source
-	require.NotNil(t, src)
-	require.NotNil(t, src.Fetch)
-	assert.Equal(t, domain.FetchTypeArchive, src.Fetch.Type)
-	assert.Equal(t, "https://x/postgresql.tar.gz", src.Fetch.Archive.URL)
-	require.NotNil(t, src.Build)
-	assert.Equal(t, domain.BuildStrategyConfigure, src.Build.Strategy)
-	assert.Equal(t, "altinstall", src.Build.InstallTarget)
-	assert.True(t, src.Install)
-	require.Len(t, src.Verify, 1)
-	assert.Equal(t, "/usr/local/pgsql/bin/postgres", src.Verify[0].File)
+	require.Len(t, m.Steps[0].Ops, 1)
+	inst := m.Steps[0].Ops[0].Install
+	require.NotNil(t, inst)
+	require.NotNil(t, inst.Source)
+	assert.Equal(t, "archive", inst.Source.Type)
+	assert.Equal(t, "https://x/postgresql.tar.gz", inst.Source.Source)
+	assert.Equal(t, "configure", inst.Source.Strategy)
+	assert.Equal(t, "/usr/local/pgsql", inst.Source.Prefix)
+	assert.Equal(t, "altinstall", inst.Source.InstallTarget)
+	require.Len(t, inst.Source.Verify, 1)
+	assert.Equal(t, "/usr/local/pgsql/bin/postgres", inst.Source.Verify[0].File)
 }
 
-func TestLoad_AptStep(t *testing.T) {
+func TestLoad_AptInstallComponent(t *testing.T) {
 	dir := t.TempDir()
 	path := writeManifest(t, dir, "forge.toml", `
-[[steps]]
+[[components]]
 name = "deps"
-run = "apt"
-action = "install"
-packages = ["curl", "git"]
+ops = [{ install = { apt = { build = ["curl"], runtime = ["git"] } } }]
 
-[[steps]]
+[[components]]
 name = "cond"
-run = "apt"
-action = "install"
-packages = ["base"]
-packages_conditional = [{ condition = "x", packages = ["bison", "flex"] }]
+ops = [{ install = { apt = { build = ["base", "bison", "flex"], conditional = [{ category = "build", when = { var = "PG", gte = "17" }, packages = ["bison", "flex"] }] } } }]
 `)
 	r := NewManifestRepository()
 	m, err := r.Load(context.Background(), path)
 	require.NoError(t, err)
 	require.Len(t, m.Steps, 2)
-	apt := m.Steps[0].Apt
-	assert.Equal(t, "install", apt.Action)
-	assert.Equal(t, []string{"curl", "git"}, apt.Packages)
-	cond := m.Steps[1].Apt.PackagesConditional
+	apt := m.Steps[0].Ops[0].Install.Apt
+	require.NotNil(t, apt)
+	assert.Equal(t, []string{"curl"}, apt.Build)
+	assert.Equal(t, []string{"git"}, apt.Runtime)
+	cond := m.Steps[1].Ops[0].Install.Apt.Conditional
 	require.Len(t, cond, 1)
-	assert.Equal(t, "x", cond[0].Condition)
+	assert.Equal(t, "build", cond[0].Category)
+	assert.Equal(t, "PG", cond[0].When.Var)
+	assert.Equal(t, "17", cond[0].When.Gte)
 	assert.Equal(t, []string{"bison", "flex"}, cond[0].Packages)
 }
 
-func TestLoad_BinaryStep(t *testing.T) {
+func TestLoad_BinaryInstallComponent(t *testing.T) {
 	dir := t.TempDir()
 	path := writeManifest(t, dir, "forge.toml", `
-[[steps]]
+[[components]]
 name = "metrics"
-run = "binary"
-fetch = { type = "archive", url = "https://x/pgmetrics.tar.gz" }
-install = { copy = [{ from = "pgmetrics", to = "/usr/local/bin/pgmetrics", mode = "0755" }] }
+ops = [{ install = { binary = { source = "https://x/pgmetrics.tar.gz", copy = [{ from = "pgmetrics", to = "/usr/local/bin/pgmetrics", mode = "0755" }] } } }]
 `)
 	r := NewManifestRepository()
 	m, err := r.Load(context.Background(), path)
 	require.NoError(t, err)
 	require.Len(t, m.Steps, 1)
-	bin := m.Steps[0].Binary
+	bin := m.Steps[0].Ops[0].Install.Binary
 	require.NotNil(t, bin)
-	require.NotNil(t, bin.Fetch)
-	assert.Equal(t, domain.FetchTypeArchive, bin.Fetch.Type)
-	require.NotNil(t, bin.Install)
-	require.Len(t, bin.Install.Copy, 1)
-	assert.Equal(t, "/usr/local/bin/pgmetrics", bin.Install.Copy[0].To)
-	assert.Equal(t, "0755", bin.Install.Copy[0].Mode)
+	assert.Equal(t, "https://x/pgmetrics.tar.gz", bin.Source)
+	require.Len(t, bin.Copy, 1)
+	assert.Equal(t, "/usr/local/bin/pgmetrics", bin.Copy[0].To)
+	assert.Equal(t, "0755", bin.Copy[0].Mode)
 }
 
 func TestLoad_UnknownKind(t *testing.T) {
@@ -152,9 +143,8 @@ func TestLoad_InlineIncludeSplice(t *testing.T) {
 	writeManifest(t, dir, "shared/deps.toml", `
 [[steps]]
 name = "shared-dep"
-run = "apt"
-action = "install"
-packages = ["curl"]
+run = "install"
+install = { apt = { packages = ["curl"] } }
 `)
 	path := writeManifest(t, dir, "forge.toml", `
 [project]

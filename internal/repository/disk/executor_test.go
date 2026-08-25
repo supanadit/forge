@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -24,9 +25,8 @@ func newTestExecutor(t *testing.T) *Executor {
 func TestExecute_ShellStep(t *testing.T) {
 	e := newTestExecutor(t)
 	step := domain.Step{
-		Name:  "echo",
-		Kind:  domain.StepKindShell,
-		Shell: &domain.ShellStep{Commands: []string{"echo hello"}},
+		Name: "echo",
+		Ops:  []domain.Operation{{Raw: "echo hello"}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
 	require.NoError(t, err)
@@ -36,9 +36,8 @@ func TestExecute_ShellStep(t *testing.T) {
 func TestExecute_ShellStepFailure(t *testing.T) {
 	e := newTestExecutor(t)
 	step := domain.Step{
-		Name:  "fail",
-		Kind:  domain.StepKindShell,
-		Shell: &domain.ShellStep{Commands: []string{"exit 1"}},
+		Name: "fail",
+		Ops:  []domain.Operation{{Raw: "exit 1"}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
 	require.Error(t, err)
@@ -51,10 +50,7 @@ func TestExecute_ShellInterpolatesVars(t *testing.T) {
 	dir := t.TempDir()
 	step := domain.Step{
 		Name: "interp",
-		Kind: domain.StepKindShell,
-		Shell: &domain.ShellStep{
-			Commands: []string{"echo ${MSG} > " + filepath.Join(dir, "out.txt")},
-		},
+		Ops:  []domain.Operation{{Raw: "echo ${MSG} > " + filepath.Join(dir, "out.txt")}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{Vars: map[string]string{"MSG": "interpolated"}})
 	require.NoError(t, err)
@@ -70,9 +66,8 @@ func TestExecute_VerifyStep(t *testing.T) {
 	require.NoError(t, os.WriteFile(existing, []byte("x"), 0o644))
 
 	step := domain.Step{
-		Name:   "check",
-		Kind:   domain.StepKindVerify,
-		Verify: &domain.VerifyStep{Checks: []domain.VerifyCheck{{File: existing}}},
+		Name: "check",
+		Ops:  []domain.Operation{{Verify: []domain.VerifyCheck{{File: existing}}}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
 	require.NoError(t, err)
@@ -82,69 +77,63 @@ func TestExecute_VerifyStep(t *testing.T) {
 func TestExecute_VerifyFailsOnMissingFile(t *testing.T) {
 	e := newTestExecutor(t)
 	step := domain.Step{
-		Name:   "check",
-		Kind:   domain.StepKindVerify,
-		Verify: &domain.VerifyStep{Checks: []domain.VerifyCheck{{File: "/nonexistent/xyz"}}},
+		Name: "check",
+		Ops:  []domain.Operation{{Verify: []domain.VerifyCheck{{File: "/nonexistent/xyz"}}}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
 	require.Error(t, err)
 	assert.Equal(t, domain.StepStatusFailed, res.Status)
 }
 
-func TestExecute_UnknownKind(t *testing.T) {
+func TestExecute_NoOps(t *testing.T) {
 	e := newTestExecutor(t)
-	res, err := e.Execute(context.Background(), domain.Step{Name: "x", Kind: "weird"}, domain.StepContext{})
-	require.Error(t, err)
-	assert.Equal(t, domain.StepStatusFailed, res.Status)
+	res, err := e.Execute(context.Background(), domain.Step{Name: "x"}, domain.StepContext{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.StepStatusSuccess, res.Status)
 }
 
-func TestExecute_SourceFromPriorStep(t *testing.T) {
+func TestExecute_InstallStep(t *testing.T) {
 	e := newTestExecutor(t)
-	srcDir := t.TempDir()
-	// A trivial Makefile so the make strategy succeeds.
-	require.NoError(t, os.WriteFile(filepath.Join(srcDir, "Makefile"), []byte("all:\n\t@echo built\ninstall:\n\t@echo installed\n"), 0o644))
-	prev := map[string]domain.StepResult{
-		"fetch-src": {Name: "fetch-src", Status: domain.StepStatusSuccess, SourceDir: srcDir},
+	// A local git repo with a trivial Makefile so the make strategy succeeds.
+	repo := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "Makefile"), []byte("all:\n\t@echo built\ninstall:\n\t@echo installed\n"), 0o644))
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		require.NoError(t, cmd.Run())
 	}
+	runGit("init", "-q")
+	runGit("add", "Makefile")
+	runGit("-c", "user.email=test@test", "-c", "user.name=test", "commit", "-q", "-m", "init")
+
 	step := domain.Step{
 		Name: "build",
-		Kind: domain.StepKindSource,
-		Source: &domain.SourceStep{
-			From:    "fetch-src",
-			Build:   &domain.BuildSpec{Strategy: domain.BuildStrategyMake},
-			Install: false,
-		},
-	}
-	res, err := e.Execute(context.Background(), step, domain.StepContext{Previous: prev})
-	require.NoError(t, err)
-	assert.Equal(t, srcDir, res.SourceDir)
-}
-
-func TestExecute_AptUnknownAction(t *testing.T) {
-	e := newTestExecutor(t)
-	step := domain.Step{
-		Name: "apt",
-		Kind: domain.StepKindApt,
-		Apt:  &domain.AptStep{Action: "explode", Packages: []string{"x"}},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{
+			Source: &domain.SourceInstall{
+				Type:     "git",
+				Source:   repo,
+				Strategy: "make",
+			},
+		}}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
-	require.Error(t, err)
-	assert.Equal(t, domain.StepStatusFailed, res.Status)
+	require.NoError(t, err)
+	assert.Equal(t, domain.StepStatusSuccess, res.Status)
 }
 
-func TestExecute_AptConditionalUsesVars(t *testing.T) {
+func TestExecute_AptInstallNoPackages(t *testing.T) {
 	e := newTestExecutor(t)
 	step := domain.Step{
 		Name: "deps",
-		Kind: domain.StepKindApt,
-		Apt: &domain.AptStep{
-			Action: "install",
-			PackagesConditional: []domain.ConditionalPackages{
-				{Condition: "${POSTGRESQL_VERSION%%.*} -ge 17", Packages: []string{"bison"}},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{
+			Apt: &domain.AptInstall{
+				Conditional: []domain.ConditionalApt{
+					{Category: "runtime", When: domain.VersionCondition{Var: "POSTGRESQL_VERSION", Gte: "17"}, Packages: []string{"bison"}},
+				},
 			},
-		},
+		}}},
 	}
-	// POSTGRESQL_VERSION=13.5 → 13 < 17 → bison must NOT be installed.
+	// POSTGRESQL_VERSION=13.5 → 13.5 < 17 → no packages added → nothing installed.
 	res, err := e.Execute(context.Background(), step, domain.StepContext{
 		Vars: map[string]string{"POSTGRESQL_VERSION": "13.5"},
 	})
@@ -161,9 +150,9 @@ func TestStepFieldInterpolation(t *testing.T) {
 	}
 	step := domain.Step{
 		Name: "shell",
-		Kind: domain.StepKindShell,
-		Shell: &domain.ShellStep{
-			Commands: []string{"echo ${step:build-pg.source} > " + filepath.Join(srcDir, "src.txt"), "echo ${step:build-pg.prefix} > " + filepath.Join(srcDir, "pfx.txt")},
+		Ops: []domain.Operation{
+			{Raw: "echo ${step:build-pg.source} > " + filepath.Join(srcDir, "src.txt")},
+			{Raw: "echo ${step:build-pg.prefix} > " + filepath.Join(srcDir, "pfx.txt")},
 		},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{Previous: prev})
@@ -178,17 +167,18 @@ func TestStepFieldInterpolation(t *testing.T) {
 	assert.Equal(t, prefix+"\n", string(data))
 }
 
-func TestEvaluateCondition(t *testing.T) {
-	ok, err := evalCondition(context.Background(), "1 -eq 1", nil)
-	require.NoError(t, err)
-	assert.True(t, ok)
+func TestVersionCompare(t *testing.T) {
+	assert.True(t, versionCompare("13.5", "17") < 0)
+	assert.True(t, versionCompare("17", "13.5") > 0)
+	assert.Equal(t, 0, versionCompare("13.5", "13.5"))
+	assert.True(t, versionCompare("v3.4.1", "3.4.0") > 0)
+	assert.Equal(t, 0, versionCompare("13.5", "13.5.0"))
+}
 
-	ok, err = evalCondition(context.Background(), "1 -eq 2", nil)
-	require.NoError(t, err)
-	assert.False(t, ok)
-
-	// ${VAR%%.*} bash expansion resolves from the environment.
-	ok, err = evalCondition(context.Background(), `${PG%%.*} -eq 13`, []string{"PG=13.5"})
-	require.NoError(t, err)
-	assert.True(t, ok)
+func TestEvalVersionCondition(t *testing.T) {
+	assert.True(t, evalVersionCondition(domain.VersionCondition{Gte: "17"}, "18"))
+	assert.False(t, evalVersionCondition(domain.VersionCondition{Gte: "17"}, "13.5"))
+	assert.True(t, evalVersionCondition(domain.VersionCondition{Lt: "17"}, "13.5"))
+	assert.False(t, evalVersionCondition(domain.VersionCondition{Eq: "17"}, "13.5"))
+	assert.False(t, evalVersionCondition(domain.VersionCondition{}, "13.5"))
 }

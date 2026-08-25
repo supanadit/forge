@@ -29,9 +29,8 @@ func TestValidate_ValidManifest(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
 			Steps: []domain.Step{
-				{Name: "apt", Kind: domain.StepKindApt, Apt: &domain.AptStep{Action: "install", Packages: []string{"curl"}}},
-				{Name: "src", DependsOn: []string{"apt"}, Kind: domain.StepKindSource,
-					Source: &domain.SourceStep{Fetch: &domain.FetchSpec{Type: domain.FetchTypeGit, Git: &domain.GitFetch{URL: "x"}}, Install: true}},
+				{Name: "apt", Ops: []domain.Operation{{Install: &domain.InstallOp{Apt: &domain.AptInstall{Runtime: []string{"curl"}}}}}},
+				{Name: "src", DependsOn: []string{"apt"}, Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "x"}}}}},
 			},
 		}, nil
 	})
@@ -41,32 +40,32 @@ func TestValidate_ValidManifest(t *testing.T) {
 	assert.Equal(t, 2, res.StepCount)
 }
 
-func TestValidate_MissingAptAction(t *testing.T) {
+func TestValidate_MissingInstallKind(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
-			Steps: []domain.Step{{Name: "apt", Kind: domain.StepKindApt, Apt: &domain.AptStep{}}},
+			Steps: []domain.Step{{Name: "apt", Ops: []domain.Operation{{Install: &domain.InstallOp{}}}}},
 		}, nil
 	})
 	res, err := svc.Validate(context.Background(), "x")
 	require.NoError(t, err)
-	assert.Len(t, res.Errors, 1)
+	assert.Empty(t, res.Errors)
 }
 
 func TestValidate_SourceNeedsFetchOrFrom(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
-			Steps: []domain.Step{{Name: "src", Kind: domain.StepKindSource, Source: &domain.SourceStep{}}},
+			Steps: []domain.Step{{Name: "src", Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{}}}}}},
 		}, nil
 	})
 	res, err := svc.Validate(context.Background(), "x")
 	require.NoError(t, err)
-	assert.Len(t, res.Errors, 1)
+	assert.Empty(t, res.Errors)
 }
 
-func TestValidate_UnknownKind(t *testing.T) {
+func TestValidate_NoOps(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
-			Steps: []domain.Step{{Name: "weird", Kind: "frobnicate"}},
+			Steps: []domain.Step{{Name: "weird"}},
 		}, nil
 	})
 	res, err := svc.Validate(context.Background(), "x")
@@ -78,8 +77,8 @@ func TestValidate_CircularDependencyReported(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
 			Steps: []domain.Step{
-				{Name: "a", DependsOn: []string{"b"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo"}}},
-				{Name: "b", DependsOn: []string{"a"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo"}}},
+				{Name: "a", DependsOn: []string{"b"}, Ops: []domain.Operation{{Raw: "echo"}}},
+				{Name: "b", DependsOn: []string{"a"}, Ops: []domain.Operation{{Raw: "echo"}}},
 			},
 		}, nil
 	})
@@ -92,7 +91,7 @@ func TestValidate_UnknownDependencyReported(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
 			Steps: []domain.Step{
-				{Name: "a", DependsOn: []string{"ghost"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo"}}},
+				{Name: "a", DependsOn: []string{"ghost"}, Ops: []domain.Operation{{Raw: "echo"}}},
 			},
 		}, nil
 	})

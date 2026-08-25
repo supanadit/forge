@@ -40,21 +40,20 @@ func TestVerify_ShellRecordedOutputs(t *testing.T) {
 	existing := filepath.Join(dir, "out.bin")
 	require.NoError(t, os.WriteFile(existing, []byte("x"), 0o644))
 
-	step := domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}
+	step := domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}
 	assert.True(t, Verify(step, CacheFile{Outputs: []string{existing}}))
 
 	missing := filepath.Join(dir, "gone.bin")
 	assert.False(t, Verify(step, CacheFile{Outputs: []string{existing, missing}}))
 
-	// Legacy entry without outputs is unverifiable.
+	// Entry without outputs is unverifiable.
 	assert.False(t, Verify(step, CacheFile{}))
 }
 
 func TestVerify_SourceInferenceFallbacks(t *testing.T) {
 	prefix := t.TempDir()
 	step := domain.Step{
-		Kind:   domain.StepKindSource,
-		Source: &domain.SourceStep{Build: &domain.BuildSpec{Prefix: prefix}},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Prefix: prefix}}}},
 	}
 	assert.False(t, Verify(step, CacheFile{}), "an empty prefix dir does not count as output")
 	require.NoError(t, os.MkdirAll(filepath.Join(prefix, "bin"), 0o755))
@@ -66,8 +65,7 @@ func TestVerify_SourceInferenceFallbacks(t *testing.T) {
 	verifyFile := filepath.Join(t.TempDir(), "control")
 	require.NoError(t, os.WriteFile(verifyFile, nil, 0o644))
 	withVerify := domain.Step{
-		Kind:   domain.StepKindSource,
-		Source: &domain.SourceStep{Verify: []domain.VerifyCheck{{File: verifyFile}}},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: verifyFile}}}}}},
 	}
 	assert.True(t, Verify(withVerify, CacheFile{}))
 	assert.False(t, Verify(withVerify, CacheFile{Outputs: []string{"/nonexistent"}}), "recorded outputs take precedence")
@@ -75,26 +73,22 @@ func TestVerify_SourceInferenceFallbacks(t *testing.T) {
 
 func TestOutputPaths_Inference(t *testing.T) {
 	src := domain.Step{
-		Kind: domain.StepKindSource,
-		Source: &domain.SourceStep{
-			Build:  &domain.BuildSpec{Prefix: "/usr/local/pgsql"},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{
+			Prefix: "/usr/local/pgsql",
 			Verify: []domain.VerifyCheck{{File: "/usr/local/pgsql/share/extension/citus.control"}},
-		},
+		}}}},
 	}
 	assert.Equal(t,
 		[]string{"/usr/local/pgsql/share/extension/citus.control", "/usr/local/pgsql"},
 		OutputPaths(src))
 
 	bin := domain.Step{
-		Kind: domain.StepKindBinary,
-		Binary: &domain.BinaryStep{
-			Install: &domain.BinaryInstall{Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/pgmetrics"}}},
-		},
+		Ops: []domain.Operation{{Install: &domain.InstallOp{Binary: &domain.BinaryInstall{Source: "https://x.tgz", Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/pgmetrics"}}}}}},
 	}
 	assert.Equal(t, []string{"/usr/local/bin/pgmetrics"}, OutputPaths(bin))
 
-	assert.Nil(t, OutputPaths(domain.Step{Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}),
-		"shell outputs come from snapshot diffs, not static paths")
+	assert.Nil(t, OutputPaths(domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}),
+		"raw-shell outputs come from snapshot diffs, not static paths")
 }
 
 func TestCachedExecutor_RestoresOutputsFromArtifact(t *testing.T) {
@@ -105,7 +99,7 @@ func TestCachedExecutor_RestoresOutputsFromArtifact(t *testing.T) {
 	target := filepath.Join(work, "installed", "tool")
 	inner := &fileCreatingInner{targets: map[string]string{"mk-tool": target}}
 	ce := NewCachedExecutor(inner, svc)
-	step := domain.Step{Name: "mk-tool", Kind: domain.StepKindShell, Shell: &domain.ShellStep{}}
+	step := domain.Step{Name: "mk-tool", Ops: []domain.Operation{{Raw: "make install"}}}
 	sctx := domain.StepContext{Vars: map[string]string{}, Previous: map[string]domain.StepResult{}, Project: "proj"}
 
 	// First run executes and persists metadata + artifact.

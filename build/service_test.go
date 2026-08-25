@@ -78,9 +78,9 @@ func (r *chainManifestRepo) Load(ctx context.Context, path string) (domain.Manif
 	return domain.Manifest{
 		Project: domain.Project{Name: "chain"},
 		Steps: []domain.Step{
-			{Name: "one", Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 1"}}},
-			{Name: "two", DependsOn: []string{"one"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 2"}}},
-			{Name: "three", DependsOn: []string{"two"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 3"}}},
+			{Name: "one", Ops: []domain.Operation{{Raw: "echo 1"}}},
+			{Name: "two", DependsOn: []string{"one"}, Ops: []domain.Operation{{Raw: "echo 2"}}},
+			{Name: "three", DependsOn: []string{"two"}, Ops: []domain.Operation{{Raw: "echo 3"}}},
 		},
 	}, nil
 }
@@ -92,9 +92,9 @@ func (r *memoryManifestRepo) Load(ctx context.Context, path string) (domain.Mani
 	return domain.Manifest{
 		Project: domain.Project{Name: "test"},
 		Steps: []domain.Step{
-			{Name: "one", Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 1"}}},
-			{Name: "two", Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 2"}}},
-			{Name: "three", DependsOn: []string{"one", "two"}, Kind: domain.StepKindShell, Shell: &domain.ShellStep{Commands: []string{"echo 3"}}},
+			{Name: "one", Ops: []domain.Operation{{Raw: "echo 1"}}},
+			{Name: "two", Ops: []domain.Operation{{Raw: "echo 2"}}},
+			{Name: "three", DependsOn: []string{"one", "two"}, Ops: []domain.Operation{{Raw: "echo 3"}}},
 		},
 	}, nil
 }

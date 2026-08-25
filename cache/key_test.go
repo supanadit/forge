@@ -11,9 +11,8 @@ import (
 
 func TestComputeKey_StableForSameInputs(t *testing.T) {
 	step := domain.Step{
-		Name:   "build-pg",
-		Kind:   domain.StepKindSource,
-		Source: &domain.SourceStep{Fetch: &domain.FetchSpec{Type: domain.FetchTypeGit}},
+		Name: "build-pg",
+		Ops:  []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "https://x/repo.git"}}}},
 	}
 	vars := map[string]string{"POSTGRESQL_VERSION": "13.5"}
 	deps := map[string]string{"deps": "abc"}
@@ -25,24 +24,22 @@ func TestComputeKey_StableForSameInputs(t *testing.T) {
 
 func TestComputeKey_ChangesWithConfig(t *testing.T) {
 	base := domain.Step{
-		Name:   "build-pg",
-		Kind:   domain.StepKindSource,
-		Source: &domain.SourceStep{Fetch: &domain.FetchSpec{Type: domain.FetchTypeGit}},
+		Name: "build-pg",
+		Ops:  []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "https://x/repo.git"}}}},
 	}
 	vars := map[string]string{}
 	deps := map[string]string{}
 
 	k1 := ComputeKey(base, vars, deps)
-	base.Source.Fetch.Git = &domain.GitFetch{URL: "https://x/repo.git"}
+	base.Ops[0].Install.Source.Source = "https://x/other.git"
 	k2 := ComputeKey(base, vars, deps)
 	require.NotEqual(t, k1, k2, "changing the config must change the key")
 }
 
 func TestComputeKey_ChangesWithVars(t *testing.T) {
 	step := domain.Step{
-		Name:   "build-pg",
-		Kind:   domain.StepKindSource,
-		Source: &domain.SourceStep{Fetch: &domain.FetchSpec{Type: domain.FetchTypeGit, Git: &domain.GitFetch{URL: "https://x/repo.git", Ref: "${PG_VERSION}"}}},
+		Name: "build-pg",
+		Ops:  []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "https://x/repo.git", Ref: "${PG_VERSION}"}}}},
 	}
 	deps := map[string]string{}
 	k1 := ComputeKey(step, map[string]string{"PG_VERSION": "13"}, deps)
@@ -53,9 +50,8 @@ func TestComputeKey_ChangesWithVars(t *testing.T) {
 func TestComputeKey_DepChange(t *testing.T) {
 	step := domain.Step{
 		Name:      "build-pg",
-		Kind:      domain.StepKindSource,
 		DependsOn: []string{"install-system-deps"},
-		Source:    &domain.SourceStep{Fetch: &domain.FetchSpec{Type: domain.FetchTypeGit}},
+		Ops:       []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "https://x/repo.git"}}}},
 	}
 	vars := map[string]string{}
 	k1 := ComputeKey(step, vars, map[string]string{"base": "keyA"})

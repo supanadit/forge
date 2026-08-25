@@ -167,110 +167,91 @@ func (s *Service) List(project string) ([]string, error) {
 // Verification is inferred — no manual cache declarations:
 //   - If the entry recorded Outputs (auto-discovered shell side effects),
 //     those paths are authoritative.
-//   - apt install steps verify via dpkg's package database.
-//   - source steps fall back to Verify paths, then to a non-empty prefix.
-//   - binary steps fall back to Verify paths, then to copy destinations.
+//   - Otherwise the install op (if any) verifies via its declared outputs:
+//     apt via dpkg's package database, source via Verify paths / prefix,
+//     binary via copy destinations.
 func Verify(step domain.Step, cf CacheFile) bool {
 	if len(cf.Outputs) > 0 {
 		return pathsExist(cf.Outputs)
 	}
-	switch step.Kind {
-	case domain.StepKindApt:
-		if step.Apt != nil && step.Apt.Action == "install" {
-			for _, pkg := range step.Apt.Packages {
-				if !dpkgInstalled(pkg) {
-					return false
-				}
-			}
-			return true
+	for _, op := range step.Ops {
+		if op.Install == nil {
+			continue
 		}
-		return false // remove/purge steps can't be verified; always re-run
-	case domain.StepKindSource:
-		if step.Source == nil {
-			return false
-		}
-		if len(step.Source.Verify) > 0 {
-			return allFilesExist(verifyPaths(step.Source.Verify))
-		}
-		if step.Source.Build != nil && step.Source.Build.Prefix != "" {
-			return dirNonEmpty(step.Source.Build.Prefix)
-		}
-		return false
-	case domain.StepKindBinary:
-		if step.Binary == nil {
-			return false
-		}
-		if len(step.Binary.Verify) > 0 {
-			return allFilesExist(verifyPaths(step.Binary.Verify))
-		}
-		if step.Binary.Install != nil && len(step.Binary.Install.Copy) > 0 {
-			dests := make([]string, 0, len(step.Binary.Install.Copy))
-			for _, c := range step.Binary.Install.Copy {
-				dests = append(dests, c.To)
-			}
-			return allFilesExist(dests)
-		}
-		return false
-	case domain.StepKindShell:
-		// Legacy entry without recorded outputs: cannot be verified.
-		return false
-	default:
-		return false // verify steps are cheap and always run
+		return installVerified(op.Install)
 	}
+	return false
+}
+
+func installVerified(inst *domain.InstallOp) bool {
+	if inst == nil {
+		return false
+	}
+	if inst.Apt != nil {
+		// apt installs verify via dpkg's package database: build + runtime.
+		packages := append([]string{}, inst.Apt.Build...)
+		packages = append(packages, inst.Apt.Runtime...)
+		for _, pkg := range packages {
+			if !dpkgInstalled(pkg) {
+				return false
+			}
+		}
+		return true
+	}
+	if inst.Source != nil {
+		if len(inst.Source.Verify) > 0 {
+			return allFilesExist(verifyPaths(inst.Source.Verify))
+		}
+		if inst.Source.Prefix != "" {
+			return dirNonEmpty(inst.Source.Prefix)
+		}
+		return false
+	}
+	if inst.Binary != nil && len(inst.Binary.Copy) > 0 {
+		dests := make([]string, 0, len(inst.Binary.Copy))
+		for _, c := range inst.Binary.Copy {
+			dests = append(dests, c.To)
+		}
+		return allFilesExist(dests)
+	}
+	return false
 }
 
 // OutputPaths returns the filesystem paths a successful step is expected to
 // produce, used both for cache verification and for artifact persistence.
-// Shell steps return nil here — their outputs come from the automatic
+// Raw-shell ops return nil here — their outputs come from the automatic
 // snapshot diff and travel through CacheFile.Outputs instead.
 func OutputPaths(step domain.Step) []string {
-	switch step.Kind {
-	case domain.StepKindSource:
-		if step.Source == nil {
-			return nil
+	for _, op := range step.Ops {
+		if op.Install == nil {
+			continue
 		}
-		var out []string
-		out = append(out, verifyPaths(step.Source.Verify)...)
-		if step.Source.Build != nil && step.Source.Build.Prefix != "" {
-			out = append(out, step.Source.Build.Prefix)
+		inst := op.Install
+		if inst.Source != nil {
+			var out []string
+			out = append(out, verifyPaths(inst.Source.Verify)...)
+			if inst.Source.Prefix != "" {
+				out = append(out, inst.Source.Prefix)
+			}
+			return out
 		}
-		return out
-	case domain.StepKindBinary:
-		if step.Binary == nil {
-			return nil
-		}
-		out := verifyPaths(step.Binary.Verify)
-		if step.Binary.Install != nil {
-			for _, c := range step.Binary.Install.Copy {
+		if inst.Binary != nil {
+			var out []string
+			for _, c := range inst.Binary.Copy {
 				out = append(out, c.To)
 			}
+			return out
 		}
-		return out
-	default:
-		return nil
+		return nil // apt installs have no static output paths
 	}
+	return nil
 }
 
 // Cacheable reports whether a step can be cached at all (independent of
-// whether a valid cache entry currently exists). Shell steps are always
-// cacheable — their outputs are discovered automatically by snapshot diffing.
+// whether a valid cache entry currently exists). A step is cacheable if it
+// has operations.
 func Cacheable(step domain.Step) bool {
-	switch step.Kind {
-	case domain.StepKindApt:
-		return step.Apt != nil && step.Apt.Action == "install"
-	case domain.StepKindSource:
-		return step.Source != nil &&
-			(len(step.Source.Verify) > 0 ||
-				(step.Source.Build != nil && step.Source.Build.Prefix != ""))
-	case domain.StepKindBinary:
-		return step.Binary != nil &&
-			(len(step.Binary.Verify) > 0 ||
-				(step.Binary.Install != nil && len(step.Binary.Install.Copy) > 0))
-	case domain.StepKindShell:
-		return step.Shell != nil
-	default:
-		return false
-	}
+	return len(step.Ops) > 0
 }
 
 func verifyPaths(checks []domain.VerifyCheck) []string {

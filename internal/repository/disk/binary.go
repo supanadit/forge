@@ -13,15 +13,15 @@ import (
 )
 
 // executeBinary downloads a prebuilt archive and copies files into place.
-func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lookup repository.Lookup) error {
-	if bin == nil || bin.Fetch == nil {
-		return fmt.Errorf("binary step has no fetch config")
+func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryInstall, lookup repository.Lookup) error {
+	if bin == nil {
+		return fmt.Errorf("binary install has no config")
 	}
-	if bin.Fetch.Type != domain.FetchTypeArchive {
-		return fmt.Errorf("binary step requires an archive fetch, got %q", bin.Fetch.Type)
+	if bin.Source == "" {
+		return fmt.Errorf("binary install has no source")
 	}
 
-	spec := *bin.Fetch.Archive
+	spec := domain.ArchiveFetch{URL: bin.Source}
 	spec.URL = repository.Replace(spec.URL, lookup)
 	spec.Dest = repository.Replace(spec.Dest, lookup)
 
@@ -30,10 +30,7 @@ func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lo
 		return err
 	}
 
-	if bin.Install == nil {
-		return fmt.Errorf("binary step has no install config")
-	}
-	for _, c := range bin.Install.Copy {
+	for _, c := range bin.Copy {
 		from := repository.Replace(c.From, lookup)
 		src := filepath.Join(extractDir, from)
 		dst := repository.Replace(c.To, lookup)
@@ -51,7 +48,7 @@ func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryStep, lo
 		}
 	}
 
-	return e.executeVerify(bin.Verify, lookup)
+	return nil
 }
 
 // copyFile copies a file (creating parent dirs), preserving nothing but bytes.

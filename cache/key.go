@@ -26,7 +26,6 @@ func ComputeKey(step domain.Step, vars map[string]string, deps map[string]string
 	}
 
 	write("name", step.Name)
-	write("kind", string(step.Kind))
 
 	// Serialize the step's configuration deterministically.
 	write(configString(step))
@@ -54,79 +53,9 @@ func ComputeKey(step domain.Step, vars map[string]string, deps map[string]string
 // configString returns a stable, sortable representation of a step's config.
 func configString(step domain.Step) string {
 	var parts []string
-	switch step.Kind {
-	case domain.StepKindApt:
-		if step.Apt != nil {
-			parts = append(parts,
-				"action="+step.Apt.Action,
-				"packages="+strings.Join(step.Apt.Packages, ","),
-			)
-			for _, cp := range step.Apt.PackagesConditional {
-				parts = append(parts, "cond="+cp.Condition+":"+strings.Join(cp.Packages, ","))
-			}
-		}
-	case domain.StepKindSource:
-		if step.Source != nil {
-			parts = append(parts,
-				"fetch="+fetchString(step.Source.Fetch),
-				"build="+buildString(step.Source.Build),
-				"install="+strconv.FormatBool(step.Source.Install),
-				"from="+step.Source.From,
-				"dir="+step.Source.Dir,
-				"env="+mapString(step.Source.Env),
-				"verify="+verifyString(step.Source.Verify),
-			)
-		}
-	case domain.StepKindBinary:
-		if step.Binary != nil {
-			parts = append(parts,
-				"fetch="+fetchString(step.Binary.Fetch),
-				"install="+binaryInstallString(step.Binary.Install),
-				"verify="+verifyString(step.Binary.Verify),
-			)
-		}
-	case domain.StepKindShell:
-		if step.Shell != nil {
-			parts = append(parts,
-				"commands="+strings.Join(step.Shell.Commands, "\n"),
-				"env="+mapString(step.Shell.Env),
-				"dir="+step.Shell.Dir,
-				"verify="+verifyString(step.Shell.Verify),
-			)
-		}
-	case domain.StepKindVerify:
-		if step.Verify != nil {
-			parts = append(parts, "checks="+verifyString(step.Verify.Checks))
-		}
-	}
+	parts = append(parts, "ops="+opsString(step.Ops))
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
-}
-
-func fetchString(f *domain.FetchSpec) string {
-	if f == nil {
-		return ""
-	}
-	var parts []string
-	parts = append(parts, "type="+string(f.Type))
-	if f.Archive != nil {
-		parts = append(parts,
-			"url="+f.Archive.URL,
-			"checksum_type="+f.Archive.ChecksumType,
-			"checksum="+f.Archive.Checksum,
-			"dest="+f.Archive.Dest,
-		)
-	}
-	if f.Git != nil {
-		parts = append(parts,
-			"url="+f.Git.URL,
-			"ref="+f.Git.Ref,
-			"depth="+strconv.Itoa(f.Git.Depth),
-			"dest="+f.Git.Dest,
-		)
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, ",")
 }
 
 func buildString(b *domain.BuildSpec) string {
@@ -190,6 +119,113 @@ func verifyString(v []domain.VerifyCheck) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ",")
+}
+
+// opsString returns a stable representation of an operation list.
+func opsString(ops []domain.Operation) string {
+	if len(ops) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, op := range ops {
+		parts = append(parts, opString(op))
+	}
+	return strings.Join(parts, ";")
+}
+
+func opString(op domain.Operation) string {
+	var parts []string
+	if op.Raw != "" {
+		parts = append(parts, "raw="+op.Raw)
+	}
+	if op.User != nil {
+		parts = append(parts, "user="+op.User.Name)
+	}
+	for _, m := range op.Mkdir {
+		parts = append(parts, "mkdir="+m.Path+":"+m.Mode+":"+m.Owner)
+	}
+	for _, c := range op.Chown {
+		parts = append(parts, "chown="+c.Path+":"+c.Owner+":"+c.Group)
+	}
+	for _, c := range op.Chmod {
+		parts = append(parts, "chmod="+c.Path+":"+c.Mode)
+	}
+	for _, c := range op.Copy {
+		parts = append(parts, "copy="+c.From+"->"+c.To+":"+c.Mode)
+	}
+	for _, t := range op.Touch {
+		parts = append(parts, "touch="+t)
+	}
+	if op.Apt != nil {
+		parts = append(parts, "apt="+op.Apt.Action+":"+strings.Join(op.Apt.Packages, ","))
+	}
+	if op.Install != nil {
+		parts = append(parts, "install="+installString(op.Install))
+	}
+	if len(op.Verify) > 0 {
+		parts = append(parts, "verify="+verifyString(op.Verify))
+	}
+	if op.Generate != nil {
+		parts = append(parts, "generate="+generateString(op.Generate))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+func generateString(g *domain.GenerateOp) string {
+	if g == nil {
+		return ""
+	}
+	var parts []string
+	parts = append(parts,
+		"tool="+g.Tool,
+		"input="+g.Input,
+		"out="+g.Out,
+		"flags="+strings.Join(g.Flags, ","),
+	)
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+func installString(inst *domain.InstallOp) string {
+	if inst == nil {
+		return ""
+	}
+	var parts []string
+	if inst.Apt != nil {
+		parts = append(parts, "apt_build="+strings.Join(inst.Apt.Build, ","))
+		parts = append(parts, "apt_runtime="+strings.Join(inst.Apt.Runtime, ","))
+		for _, c := range inst.Apt.Conditional {
+			w := c.When
+			parts = append(parts, "apt_cond="+w.Var+":"+w.Gte+"/"+w.Lte+"/"+w.Gt+"/"+w.Lt+"/"+w.Eq+":"+strings.Join(c.Packages, ","))
+		}
+	}
+	if inst.Source != nil {
+		src := inst.Source
+		parts = append(parts,
+			"type="+src.Type,
+			"source="+src.Source,
+			"ref="+src.Ref,
+			"strategy="+src.Strategy,
+			"flags="+strings.Join(src.Flags, ","),
+			"prefix="+src.Prefix,
+			"jobs="+strconv.Itoa(src.Jobs),
+			"install_target="+src.InstallTarget,
+			"env="+mapString(src.Env),
+			"verify="+verifyString(src.Verify),
+			"before="+opsString(src.Before),
+			"after="+opsString(src.After),
+		)
+	}
+	if inst.Binary != nil {
+		bin := inst.Binary
+		parts = append(parts,
+			"binary_source="+bin.Source,
+			"copy="+binaryInstallString(bin),
+		)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
 }
 
 // sortedVars returns the var names referenced as ${NAME} (or ${NAME:-def})

@@ -151,6 +151,12 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 		return domain.BuildResult{Steps: results, TotalDuration: time.Since(start)}, firstErr
 	}
 
+	if cleaner, ok := s.executor.(interface{ RunCleanup(ctx context.Context, vars map[string]string, verbose bool) error }); ok {
+		if err := cleaner.RunCleanup(ctx, vars, opts.Verbose); err != nil {
+			return domain.BuildResult{Steps: results, TotalDuration: time.Since(start)}, err
+		}
+	}
+
 	return domain.BuildResult{Steps: results, TotalDuration: time.Since(start)}, nil
 }
 

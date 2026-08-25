@@ -2,7 +2,6 @@ package disk
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +25,9 @@ type Executor struct {
 	// aptMu serializes apt-get calls. apt-get uses a dpkg lock file, so
 	// parallel apt steps would otherwise fail with a lock-frontend conflict.
 	aptMu sync.Mutex
+	// aptCleanups collects apt installs with build/runtime packages for the
+	// post-build cleanup lifecycle.
+	aptCleanups []*domain.AptInstall
 }
 
 // NewExecutor creates a step executor.
@@ -46,8 +48,6 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	}
 	defer func() { res.Duration = time.Since(start) }()
 
-	// Resolve vars for interpolation: build options env + manifest vars, plus
-	// ${step:NAME.field} references to prior step outputs.
 	lookup := repository.Lookup(func(name string) (string, bool) {
 		if v, ok := sctx.Vars[name]; ok {
 			return v, true
@@ -58,29 +58,8 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 		return "", false
 	})
 
-	switch step.Kind {
-	case domain.StepKindApt:
-		err = e.executeApt(ctx, step.Apt, sctx.Vars, sctx.Verbose)
-	case domain.StepKindSource:
-		var srcDir, prefix string
-		srcDir, prefix, err = e.executeSource(ctx, step.Source, sctx, lookup)
-		res.SourceDir = srcDir
-		res.Prefix = prefix
-	case domain.StepKindBinary:
-		err = e.executeBinary(ctx, step.Binary, lookup)
-	case domain.StepKindShell:
-		res.Outputs, err = e.executeShell(ctx, step.Shell, sctx, lookup)
-	case domain.StepKindVerify:
-		if step.Verify != nil {
-			err = e.executeVerify(step.Verify.Checks, lookup)
-		} else {
-			err = fmt.Errorf("verify step has no checks")
-		}
-	default:
-		err = fmt.Errorf("%w: %q", domain.ErrUnknownStepKind, step.Kind)
-	}
-
-	if err != nil {
+	// Run all ops in order.
+	if err = e.executeOps(ctx, step.Ops, "", nil, sctx, lookup); err != nil {
 		res.Status = domain.StepStatusFailed
 		res.Err = err
 		return
@@ -117,4 +96,48 @@ func stepField(name string, sctx domain.StepContext) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// recordAptCleanup appends an apt install to the cleanup collection when it
+// declares build or runtime packages.
+func (e *Executor) recordAptCleanup(apt *domain.AptInstall) {
+	if apt == nil || (len(apt.Build) == 0 && len(apt.Runtime) == 0) {
+		return
+	}
+	e.aptMu.Lock()
+	e.aptCleanups = append(e.aptCleanups, apt)
+	e.aptMu.Unlock()
+}
+
+// RunCleanup runs the apt cleanup lifecycle once, aggregating build/runtime
+// packages across all collected apt installs.
+func (e *Executor) RunCleanup(ctx context.Context, vars map[string]string, verbose bool) error {
+	e.aptMu.Lock()
+	cleanups := make([]*domain.AptInstall, len(e.aptCleanups))
+	copy(cleanups, e.aptCleanups)
+	e.aptMu.Unlock()
+
+	// Aggregate build and runtime packages across all installs.
+	var allBuild, allRuntime []string
+	seen := map[string]bool{}
+	for _, apt := range cleanups {
+		for _, p := range apt.Build {
+			if !seen[p] {
+				seen[p] = true
+				allBuild = append(allBuild, p)
+			}
+		}
+	}
+	seen = map[string]bool{}
+	for _, apt := range cleanups {
+		for _, p := range apt.Runtime {
+			if !seen[p] {
+				seen[p] = true
+				allRuntime = append(allRuntime, p)
+			}
+		}
+	}
+
+	// Run the cleanup lifecycle once with the aggregated lists.
+	return e.cleanupApt(ctx, allBuild, allRuntime, verbose)
 }
