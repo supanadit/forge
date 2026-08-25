@@ -78,7 +78,9 @@ func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec dom
 		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
 	}
 	args = append(args, spec.MakeFlags...)
-	args = append(args, spec.Flags...)
+	if spec.Strategy == domain.BuildStrategyMake {
+		args = append(args, spec.Flags...)
+	}
 	install := exec.Command("make", args...)
 	install.Dir = buildDir
 	var err error
@@ -184,7 +186,9 @@ func (r *BuildRepository) runMake(ctx context.Context, spec domain.BuildSpec, di
 		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
 	}
 	args = append(args, spec.MakeFlags...)
-	args = append(args, spec.Flags...)
+	if spec.Strategy == domain.BuildStrategyMake {
+		args = append(args, spec.Flags...)
+	}
 	make := exec.Command("make", args...)
 	make.Dir = dir
 	make.Env = mergeEnv(env)
