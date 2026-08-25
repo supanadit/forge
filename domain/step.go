@@ -52,6 +52,10 @@ type VersionCondition struct {
 	Eq  string
 }
 
+// BuildStrategyNone skips the build and install phases; the component's
+// before/after ops do the work (e.g. Ruby gems, pip installs).
+const BuildStrategyNone BuildStrategy = "none"
+
 // SourceInstall fetches source and builds/installs it.
 type SourceInstall struct {
 	// Type is the fetch type: "archive" or "git".

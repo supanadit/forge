@@ -36,6 +36,8 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 		return r.buildMeson(ctx, spec, sourceDir, env)
 	case domain.BuildStrategyMake:
 		return r.buildMake(ctx, spec, sourceDir, env)
+	case domain.BuildStrategyNone:
+		return sourceDir, nil
 	default:
 		return "", fmt.Errorf("unsupported build strategy %q", strategy)
 	}
@@ -44,6 +46,9 @@ func (r *BuildRepository) Build(ctx context.Context, spec domain.BuildSpec, sour
 // Install runs `make install` (or a custom install target) in the build dir,
 // passing the same make flags and job count as the build step.
 func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec domain.BuildSpec, verbose bool) error {
+	if spec.Strategy == domain.BuildStrategyNone {
+		return nil
+	}
 	target := "install"
 	if spec.InstallTarget != "" {
 		target = spec.InstallTarget
