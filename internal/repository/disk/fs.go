@@ -145,6 +145,10 @@ func (e *Executor) executeGenerate(ctx context.Context, g *domain.GenerateOp, di
 	}
 	args := []string{}
 	args = append(args, g.Flags...)
+	if g.Out != "" {
+		// protoc-style output directive.
+		args = append(args, "--c_out="+g.Out)
+	}
 	if g.Input != "" {
 		args = append(args, g.Input)
 	}

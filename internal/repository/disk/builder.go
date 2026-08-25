@@ -49,6 +49,26 @@ func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec dom
 	if spec.Strategy == domain.BuildStrategyNone {
 		return nil
 	}
+	if spec.Strategy == domain.BuildStrategyMeson {
+		// meson builds install via ninja.
+		args := []string{"-C", buildDir, "install"}
+		install := exec.Command("ninja", args...)
+		install.Dir = buildDir
+		var err error
+		if verbose {
+			out, e := runProcessVerbose(ctx, install, nil, nil)
+			if e != nil {
+				err = fmt.Errorf("ninja install: %w\n%s", e, out)
+			}
+		} else {
+			var out []byte
+			out, err = runProcess(ctx, install)
+			if err != nil {
+				err = fmt.Errorf("ninja install: %w\n%s", err, out)
+			}
+		}
+		return err
+	}
 	target := "install"
 	if spec.InstallTarget != "" {
 		target = spec.InstallTarget
@@ -58,6 +78,7 @@ func (r *BuildRepository) Install(ctx context.Context, buildDir string, spec dom
 		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
 	}
 	args = append(args, spec.MakeFlags...)
+	args = append(args, spec.Flags...)
 	install := exec.Command("make", args...)
 	install.Dir = buildDir
 	var err error
@@ -163,6 +184,7 @@ func (r *BuildRepository) runMake(ctx context.Context, spec domain.BuildSpec, di
 		args = append(args, fmt.Sprintf("-j%d", spec.Jobs))
 	}
 	args = append(args, spec.MakeFlags...)
+	args = append(args, spec.Flags...)
 	make := exec.Command("make", args...)
 	make.Dir = dir
 	make.Env = mergeEnv(env)
