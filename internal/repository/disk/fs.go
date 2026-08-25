@@ -42,18 +42,18 @@ func (e *Executor) executeUser(ctx context.Context, u *domain.UserOp, verbose bo
 }
 
 // executeFS performs filesystem operations in order.
-func (e *Executor) executeFS(ctx context.Context, mkdir []domain.MkdirOp, chown []domain.ChownOp, chmod []domain.ChmodOp, copy []domain.CopyOp, touch []string, verbose bool) error {
+func (e *Executor) executeFS(ctx context.Context, mkdir []domain.MkdirOp, chown []domain.ChownOp, chmod []domain.ChmodOp, copy []domain.CopyOp, touch []string, dir string, verbose bool) error {
 	for _, m := range mkdir {
 		args := []string{"-p"}
 		if m.Mode != "" {
 			args = append(args, "-m", m.Mode)
 		}
 		args = append(args, m.Path)
-		if err := runCmd(ctx, exec.Command("mkdir", args...), "", nil, verbose); err != nil {
+		if err := runCmd(ctx, exec.Command("mkdir", args...), dir, nil, verbose); err != nil {
 			return fmt.Errorf("mkdir %s: %w", m.Path, err)
 		}
 		if m.Owner != "" {
-			if err := runCmd(ctx, exec.Command("chown", m.Owner, m.Path), "", nil, verbose); err != nil {
+			if err := runCmd(ctx, exec.Command("chown", m.Owner, m.Path), dir, nil, verbose); err != nil {
 				return fmt.Errorf("chown %s: %w", m.Path, err)
 			}
 		}
@@ -68,26 +68,26 @@ func (e *Executor) executeFS(ctx context.Context, mkdir []domain.MkdirOp, chown 
 			owner += ":" + c.Group
 		}
 		args = append(args, owner, c.Path)
-		if err := runCmd(ctx, exec.Command("chown", args...), "", nil, verbose); err != nil {
+		if err := runCmd(ctx, exec.Command("chown", args...), dir, nil, verbose); err != nil {
 			return fmt.Errorf("chown %s: %w", c.Path, err)
 		}
 	}
 	for _, c := range chmod {
-		if err := runCmd(ctx, exec.Command("chmod", c.Mode, c.Path), "", nil, verbose); err != nil {
+		if err := runCmd(ctx, exec.Command("chmod", c.Mode, c.Path), dir, nil, verbose); err != nil {
 			return fmt.Errorf("chmod %s: %w", c.Path, err)
 		}
 	}
 	for _, p := range touch {
-		if err := runCmd(ctx, exec.Command("touch", p), "", nil, verbose); err != nil {
+		if err := runCmd(ctx, exec.Command("touch", p), dir, nil, verbose); err != nil {
 			return fmt.Errorf("touch %s: %w", p, err)
 		}
 	}
 	for _, c := range copy {
-		if err := runCmd(ctx, exec.Command("cp", c.From, c.To), "", nil, verbose); err != nil {
+		if err := runCmd(ctx, exec.Command("cp", c.From, c.To), dir, nil, verbose); err != nil {
 			return fmt.Errorf("cp %s %s: %w", c.From, c.To, err)
 		}
 		if c.Mode != "" {
-			if err := runCmd(ctx, exec.Command("chmod", c.Mode, c.To), "", nil, verbose); err != nil {
+			if err := runCmd(ctx, exec.Command("chmod", c.Mode, c.To), dir, nil, verbose); err != nil {
 				return fmt.Errorf("chmod %s: %w", c.To, err)
 			}
 		}
@@ -108,7 +108,7 @@ func (e *Executor) executeOps(ctx context.Context, ops []domain.Operation, dir s
 				return err
 			}
 		case len(op.Mkdir) > 0 || len(op.Chown) > 0 || len(op.Chmod) > 0 || len(op.Copy) > 0 || len(op.Touch) > 0:
-			if err := e.executeFS(ctx, op.Mkdir, op.Chown, op.Chmod, op.Copy, op.Touch, sctx.Verbose); err != nil {
+			if err := e.executeFS(ctx, op.Mkdir, op.Chown, op.Chmod, op.Copy, op.Touch, dir, sctx.Verbose); err != nil {
 				return err
 			}
 		case op.Apt != nil:
