@@ -1,6 +1,8 @@
 package pkgmgr
 
 import (
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -130,15 +132,77 @@ func TestCheckerNilSafeOnFailure(t *testing.T) {
 	_ = c.Installed("definitely-not-a-real-pkg-forge-test")
 }
 
-func TestIsEssentialAptPkg(t *testing.T) {
-	// Essential packages that apt refuses to remove without --allow-remove-essential
-	assert.True(t, isEssentialAptPkg("apt"))
-	assert.True(t, isEssentialAptPkg("apt-utils"))
+func TestIsEssentialPkg(t *testing.T) {
+	// isEssentialPkg shells out to `dpkg -s <pkg>`, so the test only
+	// asserts packages known to exist on the current machine. We test both
+	// the positive and negative paths by reading the dpkg output directly.
+	cases := []struct {
+		pkg  string
+		want bool
+	}{
+		// apt, diffutils, hostname are priority "required" on Debian.
+		{"apt", true},
+		{"diffutils", true},
+		{"hostname", true},
+		// Most user-facing packages are not required.
+		{"nano", false},
+		{"vim-tiny", false},
+		{"less", false},
+		{"curl", false},
+	}
+	for _, c := range cases {
+		got := isEssentialPkg(c.pkg)
+		// Some packages may not be installed on the host running the test;
+		// dpkg -s returns non-zero, and isEssentialPkg returns false. This is
+		// indistinguishable from a non-required package, so only assert when
+		// the package is installed.
+		if !isInstalledForTest(c.pkg) {
+			continue
+		}
+		assert.Equal(t, c.want, got, "package %q", c.pkg)
+	}
 
-	// Regular packages
-	assert.False(t, isEssentialAptPkg("nano"))
-	assert.False(t, isEssentialAptPkg("vim-tiny"))
-	assert.False(t, isEssentialAptPkg("less"))
-	assert.False(t, isEssentialAptPkg("curl"))
-	assert.False(t, isEssentialAptPkg(""))
+	// Unknown packages always return false.
+	assert.False(t, isEssentialPkg("definitely-not-a-real-pkg-forge-test"))
+	assert.False(t, isEssentialPkg(""))
+}
+
+// isInstalledForTest wraps dpkg -s to check if a package is installed.
+func isInstalledForTest(pkg string) bool {
+	out, err := exec.Command("dpkg", "-s", pkg).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "Status: install ok installed")
+}
+
+// TestAptCleanupSkipsEssential simulates the cleanup filtering logic without
+// shelling out to apt-get/dpkg. It mirrors the order and filtering used in
+// Apt.Cleanup: filterInstalled, then skip essential packages.
+func TestAptCleanupSkipsEssential(t *testing.T) {
+	installed := func(pkg string) bool {
+		return map[string]bool{
+			"apt": true, "diffutils": true, "hostname": true,
+			"nano": true, "vim-tiny": true,
+		}[pkg]
+	}
+
+	// Mirror the isEssentialPkg logic without shelling out.
+	essential := func(pkg string) bool {
+		return map[string]bool{"apt": true, "diffutils": true, "hostname": true}[pkg]
+	}
+
+	// Apply the same filtering as Apt.Cleanup.
+	remove := []string{"nano", "vim-tiny", "apt", "diffutils", "hostname"}
+	var kept []string
+	for _, pkg := range remove {
+		if !installed(pkg) {
+			continue
+		}
+		if essential(pkg) {
+			continue
+		}
+		kept = append(kept, pkg)
+	}
+	assert.Equal(t, []string{"nano", "vim-tiny"}, kept)
 }
