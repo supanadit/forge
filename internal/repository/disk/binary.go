@@ -17,11 +17,11 @@ func (e *Executor) executeBinary(ctx context.Context, bin *domain.BinaryInstall,
 	if bin == nil {
 		return fmt.Errorf("binary install has no config")
 	}
-	if bin.Source == "" {
-		return fmt.Errorf("binary install has no source")
+	if bin.URL == "" {
+		return fmt.Errorf("binary install has no url")
 	}
 
-	spec := domain.ArchiveFetch{URL: bin.Source}
+	spec := domain.ArchiveFetch{URL: bin.URL}
 	spec.URL = repository.Replace(spec.URL, lookup)
 	spec.Dest = repository.Replace(spec.Dest, lookup)
 

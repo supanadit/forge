@@ -43,7 +43,7 @@ func (e *CachedExecutor) Execute(ctx context.Context, step domain.Step, sctx dom
 	svc := e.cache
 	if sctx.CacheDir != "" && sctx.CacheDir != e.cache.dir {
 		var err error
-		svc, err = New(sctx.CacheDir)
+		svc, err = svc.withDir(sctx.CacheDir)
 		if err != nil {
 			return e.exec(ctx, step, sctx)
 		}
@@ -54,10 +54,10 @@ func (e *CachedExecutor) Execute(ctx context.Context, step domain.Step, sctx dom
 	key := ComputeKey(step, sctx.Vars, deps)
 
 	if cf, ok := svc.Lookup(project, step.Name, key); ok {
-		if !Verify(step, cf) {
+		if !Verify(step, cf, svc.checker) {
 			// The filesystem may have been reset (Docker layer rebuild):
 			// restore the persisted artifacts, then re-check.
-			if err := svc.RestoreArtifact(project, step.Name, key); err == nil && Verify(step, cf) {
+			if err := svc.RestoreArtifact(project, step.Name, key); err == nil && Verify(step, cf, svc.checker) {
 				return cachedResult(step.Name, cf, key), nil
 			}
 		} else {

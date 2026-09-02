@@ -117,14 +117,15 @@ func (s *Service) Build(ctx context.Context, manifestPath string, opts domain.Bu
 				if opts.Verbose {
 					fmt.Printf("  ▶ %s\n", name)
 				}
-				sctx := domain.StepContext{
-					Vars:     vars,
-					Previous: prevCopy,
-					Verbose:  opts.Verbose,
-					Project:  m.Project.Name,
-					CacheDir: opts.CacheDir,
-					NoCache:  opts.NoCache,
-				}
+sctx := domain.StepContext{
+				Vars:       vars,
+				Previous:   prevCopy,
+				Verbose:    opts.Verbose,
+				Project:    m.Project.Name,
+				CacheDir:   opts.CacheDir,
+				NoCache:    opts.NoCache,
+				PkgManager: opts.PkgManager,
+			}
 				res, err := s.executor.Execute(ctx, step, sctx)
 				if err != nil {
 					res.Status = domain.StepStatusFailed

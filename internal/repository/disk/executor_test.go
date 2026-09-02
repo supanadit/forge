@@ -108,12 +108,10 @@ func TestExecute_InstallStep(t *testing.T) {
 
 	step := domain.Step{
 		Name: "build",
-		Ops: []domain.Operation{{Install: &domain.InstallOp{
-			Source: &domain.SourceInstall{
-				Type:     "git",
-				Source:   repo,
-				Strategy: "make",
-			},
+		Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{
+			Type:     "git",
+			URL:      repo,
+			Strategy: "make",
 		}}},
 	}
 	res, err := e.Execute(context.Background(), step, domain.StepContext{})
@@ -121,19 +119,17 @@ func TestExecute_InstallStep(t *testing.T) {
 	assert.Equal(t, domain.StepStatusSuccess, res.Status)
 }
 
-func TestExecute_AptInstallNoPackages(t *testing.T) {
+func TestExecute_PackagesNoPackages(t *testing.T) {
 	e := newTestExecutor(t)
 	step := domain.Step{
 		Name: "deps",
-		Ops: []domain.Operation{{Install: &domain.InstallOp{
-			Apt: &domain.AptInstall{
-				Conditional: []domain.ConditionalApt{
-					{Category: "runtime", When: domain.VersionCondition{Var: "POSTGRESQL_VERSION", Gte: "17"}, Packages: []string{"bison"}},
-				},
+		Ops: []domain.Operation{{Packages: &domain.PackagesOp{
+			Conditional: []domain.ConditionalApt{
+				{Category: "runtime", When: domain.VersionCondition{Var: "POSTGRESQL_VERSION", Gte: "17"}, Packages: []string{"bison"}},
 			},
 		}}},
 	}
-	// POSTGRESQL_VERSION=13.5 → 13.5 < 17 → no packages added → nothing installed.
+	// POSTGRESQL_VERSION=13.5 → 13.5 < 17 → no packages → nothing happens.
 	res, err := e.Execute(context.Background(), step, domain.StepContext{
 		Vars: map[string]string{"POSTGRESQL_VERSION": "13.5"},
 	})

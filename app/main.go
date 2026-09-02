@@ -19,6 +19,7 @@ import (
 	"github.com/supanadit/forge/fetch"
 	"github.com/supanadit/forge/internal/cli"
 	"github.com/supanadit/forge/internal/repository/disk"
+	"github.com/supanadit/forge/internal/repository/disk/pkgmgr"
 	"github.com/supanadit/forge/manifest"
 	"github.com/supanadit/forge/scheduler"
 	"github.com/supanadit/forge/validate"
@@ -64,8 +65,9 @@ func main() {
 			fx.Annotate(disk.NewBuildRepository, fx.As(new(builder.BuildRepository))),
 
 			// Build cache service + cached executor wrapping the disk executor.
-			func() *cache.Service {
-				svc, err := cache.New(cacheDir)
+			pkgmgr.NewChecker,
+			func(checker *pkgmgr.Checker) *cache.Service {
+				svc, err := cache.NewWithChecker(cacheDir, checker)
 				if err != nil {
 					panic(err)
 				}

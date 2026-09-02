@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -26,19 +25,43 @@ type CacheFile struct {
 	Outputs   []string          `json:"outputs,omitempty"`
 }
 
+// PackageChecker reports whether a package is installed on the current OS. It
+// is the cache's port for verifying package-install steps without knowing the
+// concrete package manager; the disk driver provides the implementation. A
+// nil checker makes package steps unverifiable, so they safely re-execute.
+type PackageChecker interface {
+	Installed(pkg string) bool
+}
+
 // Service manages the build cache: reading/writing cache files, validating
 // cache hits, and pruning orphaned entries for a project.
 type Service struct {
-	dir string
+	dir     string
+	checker PackageChecker
 }
 
 // New creates a cache service rooted at dir. If dir is empty, it returns an
 // error so callers can default to the standard location.
 func New(dir string) (*Service, error) {
+	return NewWithChecker(dir, nil)
+}
+
+// NewWithChecker creates a cache service rooted at dir with an optional
+// package checker used to verify package-install steps.
+func NewWithChecker(dir string, checker PackageChecker) (*Service, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("cache dir is empty")
 	}
-	return &Service{dir: dir}, nil
+	return &Service{dir: dir, checker: checker}, nil
+}
+
+// withDir returns a cache service rooted at dir preserving the checker, used
+// when a per-build cache-dir override requires a fresh service.
+func (s *Service) withDir(dir string) (*Service, error) {
+	if dir == "" {
+		return s, nil
+	}
+	return &Service{dir: dir, checker: s.checker}, nil
 }
 
 // projectDir returns the cache directory for a project name.
@@ -168,48 +191,46 @@ func (s *Service) List(project string) ([]string, error) {
 //   - If the entry recorded Outputs (auto-discovered shell side effects),
 //     those paths are authoritative.
 //   - Otherwise the install op (if any) verifies via its declared outputs:
-//     apt via dpkg's package database, source via Verify paths / prefix,
+//     packages via the package checker, source via Verify paths / prefix,
 //     binary via copy destinations.
-func Verify(step domain.Step, cf CacheFile) bool {
+func Verify(step domain.Step, cf CacheFile, checker PackageChecker) bool {
 	if len(cf.Outputs) > 0 {
 		return pathsExist(cf.Outputs)
 	}
 	for _, op := range step.Ops {
-		if op.Install == nil {
+		if op.Packages == nil && op.SourceInstall == nil && op.BinaryInstall == nil {
 			continue
 		}
-		return installVerified(op.Install)
+		return installVerified(op, checker)
 	}
 	return false
 }
 
-func installVerified(inst *domain.InstallOp) bool {
-	if inst == nil {
-		return false
-	}
-	if inst.Apt != nil {
-		// apt installs verify via dpkg's package database: build + runtime.
-		packages := append([]string{}, inst.Apt.Build...)
-		packages = append(packages, inst.Apt.Runtime...)
-		for _, pkg := range packages {
-			if !dpkgInstalled(pkg) {
+func installVerified(op domain.Operation, checker PackageChecker) bool {
+	if op.Packages != nil {
+		// package installs verify via the package manager's database:
+		// build + runtime (remove packages are absent by design).
+		pkgs := append([]string{}, op.Packages.Build...)
+		pkgs = append(pkgs, op.Packages.Runtime...)
+		for _, pkg := range pkgs {
+			if !packageInstalled(checker, pkg) {
 				return false
 			}
 		}
 		return true
 	}
-	if inst.Source != nil {
-		if len(inst.Source.Verify) > 0 {
-			return allFilesExist(verifyPaths(inst.Source.Verify))
+	if op.SourceInstall != nil {
+		if len(op.SourceInstall.Verify) > 0 {
+			return allFilesExist(verifyPaths(op.SourceInstall.Verify))
 		}
-		if inst.Source.Prefix != "" {
-			return dirNonEmpty(inst.Source.Prefix)
+		if op.SourceInstall.Prefix != "" {
+			return dirNonEmpty(op.SourceInstall.Prefix)
 		}
 		return false
 	}
-	if inst.Binary != nil && len(inst.Binary.Copy) > 0 {
-		dests := make([]string, 0, len(inst.Binary.Copy))
-		for _, c := range inst.Binary.Copy {
+	if op.BinaryInstall != nil && len(op.BinaryInstall.Copy) > 0 {
+		dests := make([]string, 0, len(op.BinaryInstall.Copy))
+		for _, c := range op.BinaryInstall.Copy {
 			dests = append(dests, c.To)
 		}
 		return allFilesExist(dests)
@@ -217,32 +238,35 @@ func installVerified(inst *domain.InstallOp) bool {
 	return false
 }
 
+func packageInstalled(checker PackageChecker, pkg string) bool {
+	return checker != nil && checker.Installed(pkg)
+}
+
 // OutputPaths returns the filesystem paths a successful step is expected to
 // produce, used both for cache verification and for artifact persistence.
 // Raw-shell ops return nil here — their outputs come from the automatic
-// snapshot diff and travel through CacheFile.Outputs instead.
+// snapshot diff and travel through CacheFile.Outputs instead. Package installs
+// have no static output paths.
 func OutputPaths(step domain.Step) []string {
 	for _, op := range step.Ops {
-		if op.Install == nil {
-			continue
-		}
-		inst := op.Install
-		if inst.Source != nil {
+		if op.SourceInstall != nil {
 			var out []string
-			out = append(out, verifyPaths(inst.Source.Verify)...)
-			if inst.Source.Prefix != "" {
-				out = append(out, inst.Source.Prefix)
+			out = append(out, verifyPaths(op.SourceInstall.Verify)...)
+			if op.SourceInstall.Prefix != "" {
+				out = append(out, op.SourceInstall.Prefix)
 			}
 			return out
 		}
-		if inst.Binary != nil {
+		if op.BinaryInstall != nil {
 			var out []string
-			for _, c := range inst.Binary.Copy {
+			for _, c := range op.BinaryInstall.Copy {
 				out = append(out, c.To)
 			}
 			return out
 		}
-		return nil // apt installs have no static output paths
+		if op.Packages != nil {
+			return nil
+		}
 	}
 	return nil
 }
@@ -276,15 +300,6 @@ func allFilesExist(paths []string) bool {
 		}
 	}
 	return true
-}
-
-func dpkgInstalled(pkg string) bool {
-	cmd := exec.Command("dpkg", "-s", pkg)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(out), "Status: install ok installed")
 }
 
 func fileExists(path string) bool {

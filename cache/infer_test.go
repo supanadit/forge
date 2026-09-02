@@ -41,51 +41,72 @@ func TestVerify_ShellRecordedOutputs(t *testing.T) {
 	require.NoError(t, os.WriteFile(existing, []byte("x"), 0o644))
 
 	step := domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}
-	assert.True(t, Verify(step, CacheFile{Outputs: []string{existing}}))
+	assert.True(t, Verify(step, CacheFile{Outputs: []string{existing}}, nil))
 
 	missing := filepath.Join(dir, "gone.bin")
-	assert.False(t, Verify(step, CacheFile{Outputs: []string{existing, missing}}))
+	assert.False(t, Verify(step, CacheFile{Outputs: []string{existing, missing}}, nil))
 
 	// Entry without outputs is unverifiable.
-	assert.False(t, Verify(step, CacheFile{}))
+	assert.False(t, Verify(step, CacheFile{}, nil))
 }
 
 func TestVerify_SourceInferenceFallbacks(t *testing.T) {
 	prefix := t.TempDir()
 	step := domain.Step{
-		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Prefix: prefix}}}},
+		Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{Prefix: prefix}}},
 	}
-	assert.False(t, Verify(step, CacheFile{}), "an empty prefix dir does not count as output")
+	assert.False(t, Verify(step, CacheFile{}, nil), "an empty prefix dir does not count as output")
 	require.NoError(t, os.MkdirAll(filepath.Join(prefix, "bin"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(prefix, "bin", "psql"), nil, 0o644))
-	assert.True(t, Verify(step, CacheFile{}))
+	assert.True(t, Verify(step, CacheFile{}, nil))
 	require.NoError(t, os.RemoveAll(prefix))
-	assert.False(t, Verify(step, CacheFile{}))
+	assert.False(t, Verify(step, CacheFile{}, nil))
 
 	verifyFile := filepath.Join(t.TempDir(), "control")
 	require.NoError(t, os.WriteFile(verifyFile, nil, 0o644))
 	withVerify := domain.Step{
-		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: verifyFile}}}}}},
+		Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: verifyFile}}}}},
 	}
-	assert.True(t, Verify(withVerify, CacheFile{}))
-	assert.False(t, Verify(withVerify, CacheFile{Outputs: []string{"/nonexistent"}}), "recorded outputs take precedence")
+	assert.True(t, Verify(withVerify, CacheFile{}, nil))
+	assert.False(t, Verify(withVerify, CacheFile{Outputs: []string{"/nonexistent"}}, nil), "recorded outputs take precedence")
+}
+
+type fakeChecker struct{ installed map[string]bool }
+
+func (f *fakeChecker) Installed(pkg string) bool { return f.installed[pkg] }
+
+func TestVerify_PackagesUsesChecker(t *testing.T) {
+	checker := &fakeChecker{installed: map[string]bool{"curl": true}}
+	step := domain.Step{
+		Ops: []domain.Operation{{Packages: &domain.PackagesOp{Build: []string{"build-essential"}, Runtime: []string{"curl"}}}},
+	}
+	assert.False(t, Verify(step, CacheFile{}, nil), "nil checker cannot verify packages")
+	assert.False(t, Verify(step, CacheFile{}, checker), "build-essential not installed")
+
+	checker.installed["build-essential"] = true
+	assert.True(t, Verify(step, CacheFile{}, checker))
 }
 
 func TestOutputPaths_Inference(t *testing.T) {
 	src := domain.Step{
-		Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{
+		Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{
 			Prefix: "/usr/local/pgsql",
 			Verify: []domain.VerifyCheck{{File: "/usr/local/pgsql/share/extension/citus.control"}},
-		}}}},
+		}}},
 	}
 	assert.Equal(t,
 		[]string{"/usr/local/pgsql/share/extension/citus.control", "/usr/local/pgsql"},
 		OutputPaths(src))
 
 	bin := domain.Step{
-		Ops: []domain.Operation{{Install: &domain.InstallOp{Binary: &domain.BinaryInstall{Source: "https://x.tgz", Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/pgmetrics"}}}}}},
+		Ops: []domain.Operation{{BinaryInstall: &domain.BinaryInstall{URL: "https://x.tgz", Copy: []domain.CopySpec{{From: "m", To: "/usr/local/bin/pgmetrics"}}}}},
 	}
 	assert.Equal(t, []string{"/usr/local/bin/pgmetrics"}, OutputPaths(bin))
+
+	pkgs := domain.Step{
+		Ops: []domain.Operation{{Packages: &domain.PackagesOp{Runtime: []string{"curl"}}}},
+	}
+	assert.Nil(t, OutputPaths(pkgs), "package installs have no static output paths")
 
 	assert.Nil(t, OutputPaths(domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}),
 		"raw-shell outputs come from snapshot diffs, not static paths")

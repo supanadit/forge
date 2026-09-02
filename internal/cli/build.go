@@ -43,6 +43,7 @@ func (h *BuildHandler) buildCmd() *cobra.Command {
 	cmd.Flags().StringArray("var", nil, "Override manifest var (KEY=VALUE)")
 	cmd.Flags().String("cache-dir", "", "Override build cache directory")
 	cmd.Flags().Bool("no-cache", false, "Disable the build cache and run all steps")
+	cmd.Flags().String("pkg-manager", "", "Override OS package manager detection (apt, dnf, yum, apk)")
 	return cmd
 }
 
@@ -56,6 +57,7 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 	varOverrides, _ := cmd.Flags().GetStringArray("var")
 	cacheDir, _ := cmd.Flags().GetString("cache-dir")
 	noCache, _ := cmd.Flags().GetBool("no-cache")
+	pkgManager, _ := cmd.Flags().GetString("pkg-manager")
 
 	opts := domain.BuildOptions{
 		Parallel:     parallel,
@@ -65,6 +67,7 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 		VarOverrides: varOverrides,
 		CacheDir:     cacheDir,
 		NoCache:      noCache,
+		PkgManager:   pkgManager,
 	}
 
 	fmt.Printf("🔨 Building %s\n", manifestPath)

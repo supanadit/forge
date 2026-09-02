@@ -76,18 +76,6 @@ func buildString(b *domain.BuildSpec) string {
 	return strings.Join(parts, ",")
 }
 
-func binaryInstallString(b *domain.BinaryInstall) string {
-	if b == nil {
-		return ""
-	}
-	var parts []string
-	for _, c := range b.Copy {
-		parts = append(parts, c.From+"->"+c.To+":"+c.Mode)
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, ";")
-}
-
 func mapString(m map[string]string) string {
 	if len(m) == 0 {
 		return ""
@@ -156,11 +144,14 @@ func opString(op domain.Operation) string {
 	for _, t := range op.Touch {
 		parts = append(parts, "touch="+t)
 	}
-	if op.Apt != nil {
-		parts = append(parts, "apt="+op.Apt.Action+":"+strings.Join(op.Apt.Packages, ","))
+	if op.Packages != nil {
+		parts = append(parts, "packages="+packagesString(op.Packages))
 	}
-	if op.Install != nil {
-		parts = append(parts, "install="+installString(op.Install))
+	if op.SourceInstall != nil {
+		parts = append(parts, "source_install="+sourceInstallString(op.SourceInstall))
+	}
+	if op.BinaryInstall != nil {
+		parts = append(parts, "binary_install="+binaryInstallString(op.BinaryInstall))
 	}
 	if len(op.Verify) > 0 {
 		parts = append(parts, "verify="+verifyString(op.Verify))
@@ -187,45 +178,58 @@ func generateString(g *domain.GenerateOp) string {
 	return strings.Join(parts, ",")
 }
 
-func installString(inst *domain.InstallOp) string {
-	if inst == nil {
+func packagesString(p *domain.PackagesOp) string {
+	if p == nil {
 		return ""
 	}
 	var parts []string
-	if inst.Apt != nil {
-		parts = append(parts, "apt_build="+strings.Join(inst.Apt.Build, ","))
-		parts = append(parts, "apt_runtime="+strings.Join(inst.Apt.Runtime, ","))
-		for _, c := range inst.Apt.Conditional {
-			w := c.When
-			parts = append(parts, "apt_cond="+w.Var+":"+w.Gte+"/"+w.Lte+"/"+w.Gt+"/"+w.Lt+"/"+w.Eq+":"+strings.Join(c.Packages, ","))
-		}
-	}
-	if inst.Source != nil {
-		src := inst.Source
-		parts = append(parts,
-			"type="+src.Type,
-			"source="+src.Source,
-			"ref="+src.Ref,
-			"strategy="+src.Strategy,
-			"flags="+strings.Join(src.Flags, ","),
-			"prefix="+src.Prefix,
-			"jobs="+strconv.Itoa(src.Jobs),
-			"install_target="+src.InstallTarget,
-			"env="+mapString(src.Env),
-			"verify="+verifyString(src.Verify),
-			"before="+opsString(src.Before),
-			"after="+opsString(src.After),
-		)
-	}
-	if inst.Binary != nil {
-		bin := inst.Binary
-		parts = append(parts,
-			"binary_source="+bin.Source,
-			"copy="+binaryInstallString(bin),
-		)
+	parts = append(parts,
+		"build="+strings.Join(p.Build, ","),
+		"runtime="+strings.Join(p.Runtime, ","),
+		"remove="+strings.Join(p.Remove, ","),
+	)
+	for _, c := range p.Conditional {
+		w := c.When
+		parts = append(parts, "cond="+w.Var+":"+w.Gte+"/"+w.Lte+"/"+w.Gt+"/"+w.Lt+"/"+w.Eq+":"+strings.Join(c.Packages, ","))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
+}
+
+func sourceInstallString(src *domain.SourceInstall) string {
+	if src == nil {
+		return ""
+	}
+	var parts []string
+	parts = append(parts,
+		"type="+src.Type,
+		"url="+src.URL,
+		"ref="+src.Ref,
+		"strategy="+src.Strategy,
+		"flags="+strings.Join(src.Flags, ","),
+		"prefix="+src.Prefix,
+		"jobs="+strconv.Itoa(src.Jobs),
+		"install_target="+src.InstallTarget,
+		"env="+mapString(src.Env),
+		"verify="+verifyString(src.Verify),
+		"before="+opsString(src.Before),
+		"after="+opsString(src.After),
+	)
+	sort.Strings(parts)
+	return strings.Join(parts, "|")
+}
+
+func binaryInstallString(b *domain.BinaryInstall) string {
+	if b == nil {
+		return ""
+	}
+	var parts []string
+	parts = append(parts, "url="+b.URL)
+	for _, c := range b.Copy {
+		parts = append(parts, c.From+"->"+c.To+":"+c.Mode)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
 }
 
 // sortedVars returns the var names referenced as ${NAME} (or ${NAME:-def})

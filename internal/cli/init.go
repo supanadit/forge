@@ -14,10 +14,12 @@ description = ""
 
 [vars]
 
-[[steps]]
-name = "hello"
-run = "shell"
-commands = ["echo 'hello from forge'"]
+[[components]]
+name = "base"
+ops = [
+  { packages = ["curl", "git"] },
+  { raw = "echo 'hello from forge'" },
+]
 `
 
 // InitHandler scaffolds a new forge.toml manifest.

@@ -111,12 +111,16 @@ func (e *Executor) executeOps(ctx context.Context, ops []domain.Operation, dir s
 			if err := e.executeFS(ctx, op.Mkdir, op.Chown, op.Chmod, op.Copy, op.Touch, dir, sctx.Verbose); err != nil {
 				return err
 			}
-		case op.Apt != nil:
-			if err := e.executeAptOp(ctx, op.Apt, sctx.Verbose); err != nil {
+		case op.Packages != nil:
+			if err := e.executePackages(ctx, op.Packages, sctx); err != nil {
 				return err
 			}
-		case op.Install != nil:
-			if _, _, err := e.executeInstallOp(ctx, op.Install, sctx, lookup); err != nil {
+		case op.SourceInstall != nil:
+			if _, _, err := e.executeSourceInstall(ctx, op.SourceInstall, sctx, lookup); err != nil {
+				return err
+			}
+		case op.BinaryInstall != nil:
+			if err := e.executeBinary(ctx, op.BinaryInstall, lookup); err != nil {
 				return err
 			}
 		case len(op.Verify) > 0:
@@ -157,12 +161,4 @@ func (e *Executor) executeGenerate(ctx context.Context, g *domain.GenerateOp, di
 		return fmt.Errorf("generate %s: %w", g.Tool, err)
 	}
 	return nil
-}
-
-// executeAptOp installs or removes apt packages via the shared apt logic.
-func (e *Executor) executeAptOp(ctx context.Context, a *domain.AptOp, verbose bool) error {
-	if a == nil {
-		return fmt.Errorf("apt op has no config")
-	}
-	return e.runApt(ctx, a.Action, a.Packages, verbose)
 }

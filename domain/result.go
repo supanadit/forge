@@ -70,6 +70,8 @@ type BuildOptions struct {
 	CacheDir string
 	// NoCache disables the build cache; all steps run regardless.
 	NoCache bool
+	// PkgManager overrides OS package-manager detection (apt, dnf, yum, apk).
+	PkgManager string
 }
 
 // ValidationResult is the outcome of validating a manifest without running it.
@@ -109,4 +111,6 @@ type StepContext struct {
 	CacheDir string
 	// NoCache disables the build cache for this step.
 	NoCache bool
+	// PkgManager overrides OS package-manager detection (apt, dnf, yum, apk).
+	PkgManager string
 }

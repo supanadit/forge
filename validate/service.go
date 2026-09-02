@@ -47,9 +47,9 @@ func (s *Service) Validate(ctx context.Context, path string) (domain.ValidationR
 			res.Errors = append(res.Errors, fmt.Sprintf("step %q has no operations", st.Name))
 		}
 		for _, op := range st.Ops {
-			if op.Install != nil && op.Install.Apt != nil {
-				if len(op.Install.Apt.Build) == 0 && len(op.Install.Apt.Runtime) == 0 {
-					res.Errors = append(res.Errors, fmt.Sprintf("step %q: apt install requires at least one build or runtime package", st.Name))
+			if op.Packages != nil {
+				if len(op.Packages.Build) == 0 && len(op.Packages.Runtime) == 0 && len(op.Packages.Remove) == 0 && len(op.Packages.Conditional) == 0 {
+					res.Errors = append(res.Errors, fmt.Sprintf("step %q: packages op requires build, runtime, remove, or conditional packages", st.Name))
 				}
 			}
 		}

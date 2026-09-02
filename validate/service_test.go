@@ -29,8 +29,8 @@ func TestValidate_ValidManifest(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
 			Steps: []domain.Step{
-				{Name: "apt", Ops: []domain.Operation{{Install: &domain.InstallOp{Apt: &domain.AptInstall{Runtime: []string{"curl"}}}}}},
-				{Name: "src", DependsOn: []string{"apt"}, Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Type: "git", Source: "x"}}}}},
+				{Name: "deps", Ops: []domain.Operation{{Packages: &domain.PackagesOp{Runtime: []string{"curl"}}}}},
+				{Name: "src", DependsOn: []string{"deps"}, Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{Type: "git", URL: "x"}}}},
 			},
 		}, nil
 	})
@@ -40,21 +40,22 @@ func TestValidate_ValidManifest(t *testing.T) {
 	assert.Equal(t, 2, res.StepCount)
 }
 
-func TestValidate_MissingInstallKind(t *testing.T) {
+func TestValidate_EmptyPackagesOp(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
-			Steps: []domain.Step{{Name: "apt", Ops: []domain.Operation{{Install: &domain.InstallOp{}}}}},
+			Steps: []domain.Step{{Name: "deps", Ops: []domain.Operation{{Packages: &domain.PackagesOp{}}}}},
 		}, nil
 	})
 	res, err := svc.Validate(context.Background(), "x")
 	require.NoError(t, err)
-	assert.Empty(t, res.Errors)
+	assert.Len(t, res.Errors, 1)
+	assert.Contains(t, res.Errors[0], "packages")
 }
 
 func TestValidate_SourceNeedsFetchOrFrom(t *testing.T) {
 	svc := newTestService(t, func(ctx context.Context, path string) (domain.Manifest, error) {
 		return domain.Manifest{
-			Steps: []domain.Step{{Name: "src", Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{}}}}}},
+			Steps: []domain.Step{{Name: "src", Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{}}}}},
 		}, nil
 	})
 	res, err := svc.Validate(context.Background(), "x")

@@ -11,52 +11,20 @@ import (
 	"github.com/supanadit/forge/internal/repository"
 )
 
-// executeInstallOp runs the universal install op: apt, source, or binary.
-// It returns the resolved source dir and install prefix for reuse via
-// `${step:NAME}` interpolation.
-func (e *Executor) executeInstallOp(ctx context.Context, inst *domain.InstallOp, sctx domain.StepContext, lookup repository.Lookup) (sourceDir string, prefix string, err error) {
-	if inst == nil {
-		return "", "", fmt.Errorf("install step has no config")
-	}
-
-	switch {
-	case inst.Apt != nil:
-		// apt install: run apt in the manifest dir.
-		if err := e.executeApt(ctx, inst.Apt, sctx.Vars, sctx.Verbose); err != nil {
-			return "", "", err
-		}
-		e.recordAptCleanup(inst.Apt)
-		return "", "", nil
-	case inst.Binary != nil:
-		// binary install: download archive and copy files into place.
-		if err := e.executeBinary(ctx, inst.Binary, lookup); err != nil {
-			return "", "", err
-		}
-		return "", "", nil
-	default:
-		// source install: the existing logic, reading from inst.Source.
-		src := inst.Source
-		if src == nil {
-			return "", "", fmt.Errorf("install step has no config")
-		}
-		return e.executeSourceInstall(ctx, src, sctx, lookup)
-	}
-}
-
 // executeSourceInstall fetches source, builds it, and installs it.
 func (e *Executor) executeSourceInstall(ctx context.Context, src *domain.SourceInstall, sctx domain.StepContext, lookup repository.Lookup) (sourceDir string, prefix string, err error) {
-	// Build the fetch spec from the source install's type/source/ref.
+	// Build the fetch spec from the source install's type/url/ref.
 	var fetchSpec domain.FetchSpec
 	switch src.Type {
 	case "archive":
 		fetchSpec = domain.FetchSpec{
 			Type:    domain.FetchTypeArchive,
-			Archive: &domain.ArchiveFetch{URL: src.Source},
+			Archive: &domain.ArchiveFetch{URL: src.URL},
 		}
 	case "git":
 		fetchSpec = domain.FetchSpec{
 			Type: domain.FetchTypeGit,
-			Git:  &domain.GitFetch{URL: src.Source, Ref: src.Ref},
+			Git:  &domain.GitFetch{URL: src.URL, Ref: src.Ref},
 		}
 	default:
 		return "", "", fmt.Errorf("install step: %w: %q", domain.ErrUnknownStepKind, src.Type)

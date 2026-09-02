@@ -58,8 +58,8 @@ func TestService_List(t *testing.T) {
 func TestCacheable(t *testing.T) {
 	assert.False(t, Cacheable(domain.Step{}))
 	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Raw: "echo"}}}))
-	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Install: &domain.InstallOp{Apt: &domain.AptInstall{Runtime: []string{"curl"}}}}}}))
-	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Install: &domain.InstallOp{Source: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: "/x"}}}}}}}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Packages: &domain.PackagesOp{Runtime: []string{"curl"}}}}}))
+	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{SourceInstall: &domain.SourceInstall{Verify: []domain.VerifyCheck{{File: "/x"}}}}}}))
 	assert.True(t, Cacheable(domain.Step{Ops: []domain.Operation{{Verify: []domain.VerifyCheck{{File: "/x"}}}}}))
 }
 

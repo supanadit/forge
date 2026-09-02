@@ -13,22 +13,27 @@ import (
 	"github.com/supanadit/forge/domain"
 	"github.com/supanadit/forge/fetch"
 	"github.com/supanadit/forge/internal/repository"
+	"github.com/supanadit/forge/internal/repository/disk/pkgmgr"
 )
 
 // Executor implements build.StepExecutor by dispatching each step kind to its
-// handler. It composes the fetch and builder use cases (injected as services)
-// and uses the shared interpolation helper.
+// handler. It composes the fetch and builder use cases (injected as services),
+// uses the shared interpolation helper, and detects the OS package manager for
+// packages ops.
 type Executor struct {
 	fetchService   *fetch.Service
 	builderService *builder.Service
 	cacheDir       string
 	verbose        bool
-	// aptMu serializes apt-get calls. apt-get uses a dpkg lock file, so
-	// parallel apt steps would otherwise fail with a lock-frontend conflict.
-	aptMu sync.Mutex
-	// aptCleanups collects apt installs with build/runtime packages for the
-	// post-build cleanup lifecycle.
-	aptCleanups []*domain.AptInstall
+	// pkgMgr is the detected OS package manager, resolved once on the first
+	// packages op (or cleanup). pkgMgrErr captures a detection failure.
+	pkgMgr     pkgmgr.Manager
+	pkgMgrErr  error
+	pkgMgrOnce sync.Once
+	// pkgCleanups collects resolved package records (build/runtime/remove) for
+	// the post-build cleanup lifecycle.
+	cleanupMu  sync.Mutex
+	pkgCleanups []pkgCleanup
 }
 
 // NewExecutor creates a step executor.
@@ -99,56 +104,71 @@ func stepField(name string, sctx domain.StepContext) (string, bool) {
 	}
 }
 
-// recordAptCleanup appends an apt install to the cleanup collection when it
-// declares build or runtime packages.
-func (e *Executor) recordAptCleanup(apt *domain.AptInstall) {
-	if apt == nil || (len(apt.Build) == 0 && len(apt.Runtime) == 0) {
-		return
-	}
-	e.aptMu.Lock()
-	e.aptCleanups = append(e.aptCleanups, apt)
-	e.aptMu.Unlock()
+// packageManager resolves the OS package manager once, honoring a per-build
+// override (from --pkg-manager / FORGE_PKG_MANAGER). The result is cached so
+// all packages ops and the final cleanup use the same manager.
+func (e *Executor) packageManager(override string) (pkgmgr.Manager, error) {
+	e.pkgMgrOnce.Do(func() {
+		e.pkgMgr, e.pkgMgrErr = pkgmgr.Detect(override)
+	})
+	return e.pkgMgr, e.pkgMgrErr
 }
 
-// RunCleanup runs the apt cleanup lifecycle once, aggregating build/runtime
-// packages across all collected apt installs. When noCache is true, it also
-// removes the fetch cache (downloaded archives + extracted source trees) so a
-// throwaway build leaves no build artifacts behind.
+// RunCleanup runs the package cleanup lifecycle once, aggregating the
+// resolved build/runtime/remove lists across all collected packages ops. When
+// noCache is true, it also removes the fetch cache (downloaded archives +
+// extracted source trees) so a throwaway build leaves no build artifacts
+// behind.
 func (e *Executor) RunCleanup(ctx context.Context, vars map[string]string, verbose bool, noCache bool) error {
 	// When no_cache is set, remove the fetch cache first so no build sources
-	// remain, regardless of apt cleanup outcome.
+	// remain, regardless of package cleanup outcome.
 	if noCache {
 		if err := os.RemoveAll(e.cacheDir); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove fetch cache %s: %w", e.cacheDir, err)
 		}
 	}
 
-	e.aptMu.Lock()
-	cleanups := make([]*domain.AptInstall, len(e.aptCleanups))
-	copy(cleanups, e.aptCleanups)
-	e.aptMu.Unlock()
+	e.cleanupMu.Lock()
+	cleanups := make([]pkgCleanup, len(e.pkgCleanups))
+	copy(cleanups, e.pkgCleanups)
+	e.cleanupMu.Unlock()
 
-	// Aggregate build and runtime packages across all installs.
-	var allBuild, allRuntime []string
-	seen := map[string]bool{}
-	for _, apt := range cleanups {
-		for _, p := range apt.Build {
-			if !seen[p] {
-				seen[p] = true
-				allBuild = append(allBuild, p)
-			}
-		}
-	}
-	seen = map[string]bool{}
-	for _, apt := range cleanups {
-		for _, p := range apt.Runtime {
-			if !seen[p] {
-				seen[p] = true
-				allRuntime = append(allRuntime, p)
-			}
-		}
+	if len(cleanups) == 0 {
+		return nil
 	}
 
-	// Run the apt cleanup lifecycle once with the aggregated lists.
-	return e.cleanupApt(ctx, allBuild, allRuntime, verbose)
+	mgr, err := e.packageManager("")
+	if err != nil {
+		return err
+	}
+
+	// Aggregate build, runtime, and remove packages across all installs,
+	// de-duplicating by name.
+	aggregate := func(lists [][]string) []string {
+		var out []string
+		seen := map[string]bool{}
+		for _, list := range lists {
+			for _, p := range list {
+				if !seen[p] {
+					seen[p] = true
+					out = append(out, p)
+				}
+			}
+		}
+		return out
+	}
+	allBuild := aggregate([][]string{})
+	allRuntime := aggregate([][]string{})
+	allRemove := aggregate([][]string{})
+	for _, c := range cleanups {
+		allBuild = append(allBuild, c.build...)
+		allRuntime = append(allRuntime, c.runtime...)
+		allRemove = append(allRemove, c.remove...)
+	}
+	allBuild = aggregate([][]string{allBuild})
+	allRuntime = aggregate([][]string{allRuntime})
+	allRemove = aggregate([][]string{allRemove})
+
+	// Run the package cleanup lifecycle once with the aggregated lists.
+	return mgr.Cleanup(ctx, allBuild, allRuntime, allRemove, verbose)
 }

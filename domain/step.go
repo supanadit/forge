@@ -10,22 +10,18 @@ type Step struct {
 	Ops []Operation
 }
 
-// InstallOp fetches and builds/installs when set: apt, source, or binary.
-type InstallOp struct {
-	// Apt installs apt packages when set.
-	Apt *AptInstall
-	// Source fetches and builds source when set.
-	Source *SourceInstall
-	// Binary downloads and copies a binary when set.
-	Binary *BinaryInstall
-}
-
-// AptInstall installs apt packages, classified into build and runtime.
-type AptInstall struct {
+// PackagesOp installs packages through the detected OS package manager,
+// classified into build and runtime. Build packages are auto-removed once
+// after all components finish; Remove lists packages (e.g. preinstalled
+// base-image packages) that are stripped in the same end-of-build cleanup.
+type PackagesOp struct {
 	// Build packages are installed, then removed after all components finish.
 	Build []string
 	// Runtime packages are installed and kept (marked manually-installed).
 	Runtime []string
+	// Remove packages are explicitly stripped once after all components finish.
+	// Use for packages forge would not remove automatically (base image, etc.).
+	Remove []string
 	// Conditional gates packages behind a structured version condition.
 	Conditional []ConditionalApt
 }
@@ -60,8 +56,8 @@ const BuildStrategyNone BuildStrategy = "none"
 type SourceInstall struct {
 	// Type is the fetch type: "archive" or "git".
 	Type string
-	// Source is the URL (archive) or git URL.
-	Source string
+	// URL is the archive URL or git URL.
+	URL string
 	// Ref is the git ref/branch/tag (git only).
 	Ref string
 	// Strategy is the build strategy (make/configure/meson/cmake/autogen).
@@ -86,8 +82,8 @@ type SourceInstall struct {
 
 // BinaryInstall downloads a prebuilt binary and copies files into place.
 type BinaryInstall struct {
-	// Source is the archive URL.
-	Source string
+	// URL is the archive URL.
+	URL string
 	// Copy lists the copy operations.
 	Copy []CopySpec
 }
@@ -118,10 +114,12 @@ type Operation struct {
 	Copy []CopyOp
 	// Touch creates empty files when set.
 	Touch []string
-	// Apt installs/removes apt packages when set.
-	Apt *AptOp
-	// Install fetches and builds/installs when set.
-	Install *InstallOp
+	// Packages installs packages via the detected OS package manager when set.
+	Packages *PackagesOp
+	// SourceInstall fetches, builds, and installs source when set.
+	SourceInstall *SourceInstall
+	// BinaryInstall downloads and copies a binary when set.
+	BinaryInstall *BinaryInstall
 	// Verify asserts files exist when set.
 	Verify []VerifyCheck
 	// Generate runs a code generator when set.
@@ -132,14 +130,6 @@ type Operation struct {
 type VerifyCheck struct {
 	// File is the absolute path expected to exist.
 	File string
-}
-
-// AptOp installs or removes apt packages.
-type AptOp struct {
-	// Action is "install" or "remove".
-	Action string
-	// Packages is the list of package names.
-	Packages []string
 }
 
 // UserOp creates a system user via useradd.
