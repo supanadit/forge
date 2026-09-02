@@ -43,6 +43,8 @@ func (m *Apt) Installed(pkg string) bool {
 //  3. Autoremove orphaned dependencies
 //  4. Clean apt caches and lists
 //  5. Remove user-specified packages (last, so apt/apt-get remain available for steps 2-4)
+//  6. Purge essential packages (apt/apt-utils) via dpkg, since apt refuses to
+//     remove them with --allow-remove-essential
 //
 // The remove list is filtered to only packages that are actually installed,
 // making the manifest portable across base images. Non-installed packages
@@ -77,16 +79,55 @@ func (m *Apt) Cleanup(ctx context.Context, build, runtime, remove []string, verb
 		}
 	}
 
-	// Step 5: Remove user-specified packages (last, so apt/apt-get are still available).
+	// Step 5: Remove user-specified packages via apt-get.
 	// Filter to only installed packages to make the list portable across base images.
 	installedRemove := filterInstalled(remove, m.Installed, verbose)
 	if len(installedRemove) > 0 {
-		if err := m.run(ctx, verbose, "apt-get", removeArgs(installedRemove)...); err != nil {
-			return err
+		// Separate essential packages (apt, apt-utils) which apt-get refuses to
+		// remove without --allow-remove-essential. We purge those with dpkg
+		// after apt-get succeeds.
+		var regular, essential []string
+		for _, pkg := range installedRemove {
+			if isEssentialAptPkg(pkg) {
+				essential = append(essential, pkg)
+			} else {
+				regular = append(regular, pkg)
+			}
+		}
+
+		// Remove non-essential packages first via apt-get.
+		if len(regular) > 0 {
+			if err := m.run(ctx, verbose, "apt-get", removeArgs(regular)...); err != nil {
+				return err
+			}
+		}
+
+		// Step 6: Purge essential packages via dpkg. apt-get refuses to remove
+		// them even with --allow-remove-essential, so we bypass apt and call
+		// dpkg directly. This is safe because apt is no longer needed after
+		// the previous cleanup steps.
+		for _, pkg := range essential {
+			if verbose {
+				fmt.Fprintf(os.Stderr, "warning: purging essential package %q via dpkg\n", pkg)
+			}
+			if err := m.run(ctx, verbose, "dpkg", "--purge", pkg); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
+}
+
+// isEssentialAptPkg reports whether pkg is an essential apt package that
+// apt-get refuses to remove without --allow-remove-essential. These must be
+// purged via dpkg after apt is no longer needed.
+func isEssentialAptPkg(pkg string) bool {
+	switch pkg {
+	case "apt", "apt-utils":
+		return true
+	}
+	return false
 }
 
 // filterInstalled filters a package list to only those that are currently installed.

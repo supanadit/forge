@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -84,6 +85,10 @@ func (h *BuildHandler) run(cmd *cobra.Command, args []string) error {
 	res, err := h.svc.Build(cmd.Context(), manifestPath, opts)
 	if err != nil {
 		printBuildResult(res)
+		// Cleanup errors are not tied to any step, so print them explicitly so
+		// they're visible in CI logs (cobra only prints the error message, not
+		// its full chain, which can be truncated in BuildKit output).
+		fmt.Fprintf(os.Stderr, "\n❌ Build failed: %v\n", err)
 		return err
 	}
 	printBuildResult(res)

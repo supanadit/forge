@@ -129,3 +129,16 @@ func TestCheckerNilSafeOnFailure(t *testing.T) {
 	c := NewChecker()
 	_ = c.Installed("definitely-not-a-real-pkg-forge-test")
 }
+
+func TestIsEssentialAptPkg(t *testing.T) {
+	// Essential packages that apt refuses to remove without --allow-remove-essential
+	assert.True(t, isEssentialAptPkg("apt"))
+	assert.True(t, isEssentialAptPkg("apt-utils"))
+
+	// Regular packages
+	assert.False(t, isEssentialAptPkg("nano"))
+	assert.False(t, isEssentialAptPkg("vim-tiny"))
+	assert.False(t, isEssentialAptPkg("less"))
+	assert.False(t, isEssentialAptPkg("curl"))
+	assert.False(t, isEssentialAptPkg(""))
+}
