@@ -95,6 +95,34 @@ func TestVirtualGroupDeterministic(t *testing.T) {
 	assert.Equal(t, a, VirtualGroup([]string{"flex", "bison"}), "order must not matter")
 }
 
+func TestFilterInstalled(t *testing.T) {
+	installed := map[string]bool{
+		"curl":  true,
+		"git":   true,
+		"apt":   true,
+		"nano":  true,
+	}
+	checker := func(pkg string) bool { return installed[pkg] }
+
+	// All installed
+	result := filterInstalled([]string{"curl", "git", "apt"}, checker, false)
+	assert.Equal(t, []string{"curl", "git", "apt"}, result)
+
+	// Some installed
+	result = filterInstalled([]string{"curl", "vim", "git", "emacs"}, checker, false)
+	assert.Equal(t, []string{"curl", "git"}, result)
+
+	// None installed
+	result = filterInstalled([]string{"vim", "emacs"}, checker, false)
+	assert.Empty(t, result)
+
+	// Empty input
+	result = filterInstalled(nil, checker, false)
+	assert.Nil(t, result)
+	result = filterInstalled([]string{}, checker, false)
+	assert.Nil(t, result)
+}
+
 func TestCheckerNilSafeOnFailure(t *testing.T) {
 	// Detection on the current machine may or may not succeed; the checker
 	// must never panic and always answer something for an unknown package.

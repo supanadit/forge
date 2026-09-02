@@ -38,17 +38,23 @@ func (m *Apk) Installed(pkg string) bool {
 	return exec.Command("apk", "info", "-e", pkg).Run() == nil
 }
 
-// Cleanup runs the apk end-of-build lifecycle once: remove the recorded build
-// virtual groups (build + remove packages together), then clean caches. The
-// build list is used to recompute the deterministic virtual group names.
+// Cleanup runs the apk end-of-build lifecycle once:
+//  1. Remove the recorded build virtual groups
+//  2. Remove user-specified packages
+//
+// The remove list is filtered to only packages that are actually installed,
+// making the manifest portable across base images. Non-installed packages
+// are skipped with a warning in verbose mode.
 func (m *Apk) Cleanup(ctx context.Context, build, runtime, remove []string, verbose bool) error {
 	if len(build) > 0 {
 		if err := m.run(ctx, verbose, "apk", "del", "--purge", VirtualGroup(build)); err != nil {
 			return err
 		}
 	}
-	if len(remove) > 0 {
-		if err := m.run(ctx, verbose, "apk", append([]string{"del", "--purge"}, remove...)...); err != nil {
+	// Filter to only installed packages to make the list portable across base images.
+	installedRemove := filterInstalled(remove, m.Installed, verbose)
+	if len(installedRemove) > 0 {
+		if err := m.run(ctx, verbose, "apk", append([]string{"del", "--purge"}, installedRemove...)...); err != nil {
 			return err
 		}
 	}

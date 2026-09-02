@@ -56,20 +56,41 @@ func (m *rpm) Installed(pkg string) bool {
 	return strings.Contains(string(out), pkg)
 }
 
-// Cleanup runs the rpm-family end-of-build lifecycle once: remove build +
-// remove packages, autoremove, and clean caches.
+// Cleanup runs the rpm-family end-of-build lifecycle once:
+//  1. Remove build packages
+//  2. Autoremove orphaned dependencies
+//  3. Clean package manager caches
+//  4. Remove user-specified packages (last, so the package manager remains available for steps 1-3)
+//
+// The remove list is filtered to only packages that are actually installed,
+// making the manifest portable across base images. Non-installed packages
+// are skipped with a warning in verbose mode.
 func (m *rpm) Cleanup(ctx context.Context, build, runtime, remove []string, verbose bool) error {
-	toRemove := append(append([]string{}, build...), remove...)
-	if len(toRemove) > 0 {
-		if err := m.run(ctx, verbose, m.bin, append([]string{"remove", "-y"}, toRemove...)...); err != nil {
+	// Step 1: Remove build packages.
+	if len(build) > 0 {
+		if err := m.run(ctx, verbose, m.bin, append([]string{"remove", "-y"}, build...)...); err != nil {
 			return err
 		}
 	}
+
+	// Step 2: Autoremove orphaned dependencies.
 	if err := m.run(ctx, verbose, m.bin, "autoremove", "-y"); err != nil {
 		return err
 	}
+
+	// Step 3: Clean package manager caches.
 	if err := m.run(ctx, verbose, m.bin, "clean", "all"); err != nil {
 		return err
 	}
+
+	// Step 4: Remove user-specified packages (last, so the package manager is still available).
+	// Filter to only installed packages to make the list portable across base images.
+	installedRemove := filterInstalled(remove, m.Installed, verbose)
+	if len(installedRemove) > 0 {
+		if err := m.run(ctx, verbose, m.bin, append([]string{"remove", "-y"}, installedRemove...)...); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
