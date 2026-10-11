@@ -13,6 +13,7 @@ import (
 	"github.com/supanadit/forge/builder"
 	"github.com/supanadit/forge/domain"
 	"github.com/supanadit/forge/fetch"
+	"github.com/supanadit/forge/internal/repository"
 )
 
 func newTestExecutor(t *testing.T) *Executor {
@@ -217,4 +218,64 @@ func TestExecute_UserOpIsIdempotent(t *testing.T) {
 func runProcessErr(cmd *exec.Cmd) error {
 	_, err := runProcess(context.Background(), cmd)
 	return err
+}
+
+// TestStepField_ResolvesPriorPrefix is a regression test for a bug where
+// Execute never populated StepResult.SourceDir/Prefix, so a later step's
+// `${step:NAME.prefix}` reference could never resolve and reached the build
+// command verbatim:
+//
+//	configure --with-apr=${step:apr.prefix}
+//
+// stepField must resolve the reference from a completed prior step.
+func TestStepField_ResolvesPriorPrefix(t *testing.T) {
+	sctx := domain.StepContext{Previous: map[string]domain.StepResult{
+		"apr": {Status: domain.StepStatusSuccess, Prefix: "/usr/local/apr", SourceDir: "/tmp/apr-src"},
+	}}
+
+	got, ok := stepField("step:apr.prefix", sctx)
+	require.True(t, ok)
+	assert.Equal(t, "/usr/local/apr", got)
+
+	got, ok = stepField("step:apr.source", sctx)
+	require.True(t, ok)
+	assert.Equal(t, "/tmp/apr-src", got)
+
+	// An unknown field on a known step does not resolve.
+	_, ok = stepField("step:apr.nope", sctx)
+	assert.False(t, ok)
+}
+
+// TestReplaceAll_ExpandsFlags verifies build flags resolve placeholders,
+// including ${step:...} references to a prior step's install prefix.
+func TestReplaceAll_ExpandsFlags(t *testing.T) {
+	sctx := domain.StepContext{
+		Vars: map[string]string{"PREFIX": "/opt/x"},
+		Previous: map[string]domain.StepResult{
+			"apr": {Prefix: "/usr/local/apr"},
+		},
+	}
+	lookup := repository.Lookup(func(name string) (string, bool) {
+		if v, ok := sctx.Vars[name]; ok {
+			return v, true
+		}
+		if f, ok := stepField(name, sctx); ok {
+			return f, true
+		}
+		return "", false
+	})
+
+	got := replaceAll([]string{
+		"--with-apr=${step:apr.prefix}",
+		"--prefix=${PREFIX}",
+		"--untouched",
+	}, lookup)
+	assert.Equal(t, []string{
+		"--with-apr=/usr/local/apr",
+		"--prefix=/opt/x",
+		"--untouched",
+	}, got)
+
+	// A nil slice stays nil.
+	assert.Nil(t, replaceAll(nil, lookup))
 }

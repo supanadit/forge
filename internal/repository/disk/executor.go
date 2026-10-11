@@ -65,11 +65,17 @@ func (e *Executor) Execute(ctx context.Context, step domain.Step, sctx domain.St
 	})
 
 	// Run all ops in order.
-	if err = e.executeOps(ctx, step.Ops, "", nil, sctx, lookup); err != nil {
+	sourceDir, prefix, opErr := e.executeOps(ctx, step.Ops, "", nil, sctx, lookup)
+	if opErr != nil {
 		res.Status = domain.StepStatusFailed
-		res.Err = err
+		res.Err = opErr
+		err = opErr
 		return
 	}
+	// Surface the source dir and prefix so later steps can reference them via
+	// ${step:NAME.source} / ${step:NAME.prefix}.
+	res.SourceDir = sourceDir
+	res.Prefix = prefix
 	return
 }
 

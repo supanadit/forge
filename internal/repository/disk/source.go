@@ -61,16 +61,16 @@ func (e *Executor) executeSourceInstall(ctx context.Context, src *domain.SourceI
 
 	env := mergeMapEnv(src.Env, sctx.Vars, lookup)
 
-	if err := e.executeOps(ctx, src.Before, buildRoot, env, sctx, lookup); err != nil {
+	if _, _, err := e.executeOps(ctx, src.Before, buildRoot, env, sctx, lookup); err != nil {
 		return sourceDir, prefix, err
 	}
 
 	buildSpec := domain.BuildSpec{
 		Strategy:      domain.BuildStrategy(src.Strategy),
 		Prefix:        src.Prefix,
-		Flags:         src.Flags,
+		Flags:         replaceAll(src.Flags, lookup),
 		Jobs:          src.Jobs,
-		InstallTarget: src.InstallTarget,
+		InstallTarget: repository.Replace(src.InstallTarget, lookup),
 		Verbose:       sctx.Verbose,
 	}
 	if buildSpec.Prefix == "" {
@@ -86,7 +86,7 @@ func (e *Executor) executeSourceInstall(ctx context.Context, src *domain.SourceI
 		return sourceDir, prefix, err
 	}
 
-	if err := e.executeOps(ctx, src.After, buildRoot, env, sctx, lookup); err != nil {
+	if _, _, err := e.executeOps(ctx, src.After, buildRoot, env, sctx, lookup); err != nil {
 		return sourceDir, prefix, err
 	}
 
@@ -140,6 +140,20 @@ func mergeMapEnv(stepEnv map[string]string, vars map[string]string, lookup repos
 	var out []string
 	for k, v := range merged {
 		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+// replaceAll expands placeholders in every element of a slice, preserving order
+// and nil-ness. Used for build flags, whose values may reference earlier steps
+// (e.g. "--with-apr=${step:apr.prefix}").
+func replaceAll(in []string, lookup repository.Lookup) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = repository.Replace(s, lookup)
 	}
 	return out
 }

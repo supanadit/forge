@@ -102,45 +102,53 @@ func (e *Executor) executeFS(ctx context.Context, mkdir []domain.MkdirOp, chown 
 	return nil
 }
 
-// executeOps runs a list of operations in order.
-func (e *Executor) executeOps(ctx context.Context, ops []domain.Operation, dir string, env []string, sctx domain.StepContext, lookup repository.Lookup) error {
+// executeOps runs ops in order, returning the source dir and install prefix of
+// the first source_install it performed (empty if none). Callers surface these
+// on the StepResult so later steps can reference them via ${step:NAME.source}
+// and ${step:NAME.prefix}.
+func (e *Executor) executeOps(ctx context.Context, ops []domain.Operation, dir string, env []string, sctx domain.StepContext, lookup repository.Lookup) (string, string, error) {
+	var sourceDir, prefix string
 	for _, op := range ops {
 		switch {
 		case op.Raw != "":
 			if err := runShellCommands(ctx, []string{repository.Replace(op.Raw, lookup)}, dir, env, sctx.Verbose); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case op.User != nil:
 			if err := e.executeUser(ctx, op.User, sctx.Verbose); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case len(op.Mkdir) > 0 || len(op.Chown) > 0 || len(op.Chmod) > 0 || len(op.Copy) > 0 || len(op.Touch) > 0:
 			if err := e.executeFS(ctx, op.Mkdir, op.Chown, op.Chmod, op.Copy, op.Touch, dir, sctx.Verbose); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case op.Packages != nil:
 			if err := e.executePackages(ctx, op.Packages, sctx); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case op.SourceInstall != nil:
-			if _, _, err := e.executeSourceInstall(ctx, op.SourceInstall, sctx, lookup); err != nil {
-				return err
+			sd, pfx, err := e.executeSourceInstall(ctx, op.SourceInstall, sctx, lookup)
+			if err != nil {
+				return sourceDir, prefix, err
+			}
+			if sourceDir == "" {
+				sourceDir, prefix = sd, pfx
 			}
 		case op.BinaryInstall != nil:
 			if err := e.executeBinary(ctx, op.BinaryInstall, lookup); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case len(op.Verify) > 0:
 			if err := e.executeVerify(op.Verify, lookup); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		case op.Generate != nil:
 			if err := e.executeGenerate(ctx, op.Generate, dir, sctx.Verbose); err != nil {
-				return err
+				return sourceDir, prefix, err
 			}
 		}
 	}
-	return nil
+	return sourceDir, prefix, nil
 }
 
 // executeGenerate runs a code generator in dir, creating the output dir first.
