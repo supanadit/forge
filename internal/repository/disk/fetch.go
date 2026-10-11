@@ -5,9 +5,11 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -53,10 +55,16 @@ func (r *FetchRepository) FetchArchive(ctx context.Context, spec domain.ArchiveF
 		}
 	}
 
-	// Verify checksum if requested.
-	if spec.ChecksumType != "" && spec.Checksum != "" {
-		if err := r.verifyChecksum(archivePath, spec.ChecksumType, spec.Checksum); err != nil {
-			return "", err
+	// Verify checksum if requested. This also covers an archive already present in
+	// the cache: a tampered or truncated cached file is caught, not silently
+	// extracted.
+	if spec.Checksum != "" {
+		algo := spec.ChecksumType
+		if algo == "" {
+			algo = "sha256"
+		}
+		if err := r.verifyChecksum(archivePath, algo, spec.Checksum); err != nil {
+			return "", fmt.Errorf("verify %s: %w", filepath.Base(archivePath), err)
 		}
 	}
 
@@ -141,25 +149,81 @@ func (r *FetchRepository) download(ctx context.Context, url, dest string) error 
 }
 
 func (r *FetchRepository) verifyChecksum(path, algo, expected string) error {
+	expected = NormalizeChecksum(expected)
+	var h hash.Hash
 	switch algo {
 	case "sha256":
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		h := sha256.New()
-		if _, err := io.Copy(h, f); err != nil {
-			return err
-		}
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, expected) {
-			return fmt.Errorf("checksum mismatch: got %s want %s", got, expected)
-		}
-		return nil
+		h = sha256.New()
+	case "md5":
+		h = md5.New()
 	default:
 		return fmt.Errorf("unsupported checksum type %q", algo)
 	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, expected) {
+		return fmt.Errorf("checksum mismatch: got %s want %s", got, expected)
+	}
+	return nil
+}
+
+// NormalizeChecksum extracts the bare hex digest from a checksum value. It
+// accepts a bare digest or a line from a published checksum file, in either
+// common form:
+//
+//	"<hex>  <filename>"   (coreutils sha256sum/md5sum)
+//	"<algo>:<hex>"        (BSD-style, e.g. sha256:...)
+//
+// so a value can be pasted straight from upstream's .sha256/.md5 file. A value
+// that appears to already be a bare digest is returned unchanged.
+func NormalizeChecksum(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	// BSD/OpenSSL-style "SHA256 (filename) = <hex>".
+	if i := strings.LastIndex(v, "="); i >= 0 {
+		candidate := strings.TrimSpace(v[i+1:])
+		if isHex(candidate) && len(candidate) >= 32 {
+			return candidate
+		}
+	}
+	// BSD-style "algo:hex".
+	if i := strings.LastIndex(v, ":"); i >= 0 {
+		candidate := v[i+1:]
+		if isHex(candidate) && len(candidate) >= 32 {
+			return candidate
+		}
+	}
+	// Take the first whitespace-separated field (drops a " *filename" suffix).
+	if fields := strings.Fields(v); len(fields) > 0 {
+		if isHex(fields[0]) {
+			return fields[0]
+		}
+	}
+	return v
+}
+
+// isHex reports whether s is non-empty and contains only hexadecimal digits.
+func isHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // extractArchive extracts .tar.gz, .tgz, .tar, and .zip archives.

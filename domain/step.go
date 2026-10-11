@@ -70,6 +70,14 @@ type SourceInstall struct {
 	Jobs int
 	// InstallTarget is a custom make install target.
 	InstallTarget string
+	// Checksum is the expected digest of the downloaded archive, verified before
+	// extraction. Empty disables verification. The value may be a bare hex
+	// digest, or a line from a published checksum file ("<hex>  <filename>"),
+	// so a value can be pasted straight from upstream's .sha256.
+	Checksum string
+	// ChecksumType is the digest algorithm ("sha256" or "md5"). Defaults to
+	// "sha256" when Checksum is set but this is empty.
+	ChecksumType string
 	// Env are extra environment variables.
 	Env map[string]string
 	// Verify lists post-install file assertions.

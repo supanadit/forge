@@ -103,7 +103,7 @@ name = "pg"
 [[components]]
 name = "build-pg"
 ops = [
-  { source_install = { type = "archive", url = "https://x/postgresql.tar.gz", strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"], install_target = "altinstall", verify = [{ file = "/usr/local/pgsql/bin/postgres" }] } },
+  { source_install = { type = "archive", url = "https://x/postgresql.tar.gz", strategy = "configure", prefix = "/usr/local/pgsql", flags = ["--with-openssl"], install_target = "altinstall", checksum = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2", checksum_type = "sha256", verify = [{ file = "/usr/local/pgsql/bin/postgres" }] } },
 ]
 `)
 	r := NewManifestRepository()
@@ -118,6 +118,8 @@ ops = [
 	assert.Equal(t, "configure", src.Strategy)
 	assert.Equal(t, "/usr/local/pgsql", src.Prefix)
 	assert.Equal(t, "altinstall", src.InstallTarget)
+	assert.Equal(t, "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2", src.Checksum)
+	assert.Equal(t, "sha256", src.ChecksumType)
 	require.Len(t, src.Verify, 1)
 	assert.Equal(t, "/usr/local/pgsql/bin/postgres", src.Verify[0].File)
 }

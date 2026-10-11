@@ -11,9 +11,38 @@ import (
 	"fmt"
 
 	"github.com/supanadit/forge/domain"
+	"github.com/supanadit/forge/internal/repository/disk"
 	"github.com/supanadit/forge/manifest"
 	"github.com/supanadit/forge/scheduler"
 )
+
+// isHexDigest reports whether s is a non-empty, even-length hex string.
+func isHexDigest(s string) bool {
+	if s == "" || len(s)%2 != 0 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// checksumAlgoForLen infers the algorithm from a digest's hex length when the
+// manifest did not name one explicitly.
+func checksumAlgoForLen(n int) string {
+	switch n {
+	case 32:
+		return "md5"
+	case 64:
+		return "sha256"
+	default:
+		return ""
+	}
+}
 
 // Service validates manifests without executing them.
 type Service struct {
@@ -50,6 +79,29 @@ func (s *Service) Validate(ctx context.Context, path string) (domain.ValidationR
 			if op.Packages != nil {
 				if len(op.Packages.Build) == 0 && len(op.Packages.Runtime) == 0 && len(op.Packages.Remove) == 0 && len(op.Packages.Conditional) == 0 {
 					res.Errors = append(res.Errors, fmt.Sprintf("step %q: packages op requires build, runtime, remove, or conditional packages", st.Name))
+				}
+			}
+			if src := op.SourceInstall; src != nil && src.Checksum != "" {
+				checksum := disk.NormalizeChecksum(src.Checksum)
+				if !isHexDigest(checksum) {
+					res.Errors = append(res.Errors, fmt.Sprintf("step %q: source_install checksum %q is not a valid digest", st.Name, src.Checksum))
+				} else {
+					algo := src.ChecksumType
+					if algo == "" {
+						algo = checksumAlgoForLen(len(checksum))
+					}
+					switch algo {
+					case "sha256":
+						if len(checksum) != 64 {
+							res.Errors = append(res.Errors, fmt.Sprintf("step %q: sha256 checksum has %d hex chars, want 64", st.Name, len(checksum)))
+						}
+					case "md5":
+						if len(checksum) != 32 {
+							res.Errors = append(res.Errors, fmt.Sprintf("step %q: md5 checksum has %d hex chars, want 32", st.Name, len(checksum)))
+						}
+					default:
+						res.Errors = append(res.Errors, fmt.Sprintf("step %q: unsupported checksum_type %q (want sha256 or md5)", st.Name, src.ChecksumType))
+					}
 				}
 			}
 		}

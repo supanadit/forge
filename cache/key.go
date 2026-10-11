@@ -210,6 +210,8 @@ func sourceInstallString(src *domain.SourceInstall) string {
 		"prefix="+src.Prefix,
 		"jobs="+strconv.Itoa(src.Jobs),
 		"install_target="+src.InstallTarget,
+		"checksum="+src.Checksum,
+		"checksum_type="+src.ChecksumType,
 		"env="+mapString(src.Env),
 		"verify="+verifyString(src.Verify),
 		"before="+opsString(src.Before),

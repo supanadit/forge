@@ -147,6 +147,8 @@ type sourceInstallDTO struct {
 	Prefix        string            `toml:"prefix"`
 	Jobs          int               `toml:"jobs"`
 	InstallTarget string            `toml:"install_target"`
+	Checksum      string            `toml:"checksum"`
+	ChecksumType  string            `toml:"checksum_type"`
 	Env           map[string]string `toml:"env"`
 	Verify        []verifyCheckDTO  `toml:"verify"`
 	Before        []operationDTO    `toml:"before"`
@@ -433,6 +435,7 @@ func mapSourceInstall(d *sourceInstallDTO) *domain.SourceInstall {
 	return &domain.SourceInstall{
 		Type: d.Type, URL: d.URL, Ref: d.Ref, Strategy: d.Strategy,
 		Flags: d.Flags, Prefix: d.Prefix, Jobs: d.Jobs, InstallTarget: d.InstallTarget,
+		Checksum: d.Checksum, ChecksumType: d.ChecksumType,
 		Env: d.Env, Verify: mapVerify(d.Verify),
 		Before: mapOperationsOrNil(d.Before),
 		After:  mapOperationsOrNil(d.After),

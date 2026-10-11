@@ -18,8 +18,12 @@ func (e *Executor) executeSourceInstall(ctx context.Context, src *domain.SourceI
 	switch src.Type {
 	case "archive":
 		fetchSpec = domain.FetchSpec{
-			Type:    domain.FetchTypeArchive,
-			Archive: &domain.ArchiveFetch{URL: src.URL},
+			Type: domain.FetchTypeArchive,
+			Archive: &domain.ArchiveFetch{
+				URL:          src.URL,
+				Checksum:     src.Checksum,
+				ChecksumType: src.ChecksumType,
+			},
 		}
 	case "git":
 		fetchSpec = domain.FetchSpec{
@@ -36,6 +40,7 @@ func (e *Executor) executeSourceInstall(ctx context.Context, src *domain.SourceI
 		spec := *fetchSpec.Archive
 		spec.URL = repository.Replace(spec.URL, lookup)
 		spec.Dest = repository.Replace(spec.Dest, lookup)
+		spec.Checksum = repository.Replace(spec.Checksum, lookup)
 		buildDir, err = e.fetchService.FetchArchive(ctx, spec)
 	case domain.FetchTypeGit:
 		spec := *fetchSpec.Git

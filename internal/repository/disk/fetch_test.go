@@ -4,6 +4,10 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -123,4 +127,128 @@ func TestFetchArchive_ChecksumMismatch(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "checksum mismatch")
+}
+
+func TestNormalizeChecksum(t *testing.T) {
+	const hex64 = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+	const hex32 = "d41d8cd98f00b204e9800998ecf8427e"
+	cases := map[string]string{
+		hex64:                               hex64,
+		"  " + hex64 + "  ":                 hex64,
+		hex64 + "  postgresql-16.4.tar.gz":  hex64,
+		hex64 + " *postgresql-16.4.tar.gz":  hex64,
+		"sha256:" + hex64:                   hex64,
+		"SHA256 (" + hex64 + ") = " + hex64: hex64,
+		hex32 + "  file.tar.gz":             hex32,
+		"":                                  "",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, NormalizeChecksum(in), "input %q", in)
+	}
+}
+
+// TestFetchArchive_AcceptsChecksumFileLine verifies a value pasted straight
+// from an upstream .sha256 file ("<hex>  <filename>") is accepted.
+func TestFetchArchive_AcceptsChecksumFileLine(t *testing.T) {
+	cache := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "x.tar.gz")
+	makeTarGz(t, tarPath, map[string]string{"x/file": "data"})
+	sum, err := fileSHA256(tarPath)
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, tarPath)
+	}))
+	defer srv.Close()
+
+	repo := NewFetchRepository()
+	repo.SetCacheDir(cache)
+	dir, err := repo.FetchArchive(context.Background(), domain.ArchiveFetch{
+		URL:      srv.URL + "/x.tar.gz",
+		Checksum: sum + "  x.tar.gz",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, dir)
+}
+
+// TestFetchArchive_VerifiesCachedArchive verifies a corrupted archive already in
+// the cache is caught rather than silently extracted.
+func TestFetchArchive_VerifiesCachedArchive(t *testing.T) {
+	cache := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "x.tar.gz")
+	makeTarGz(t, tarPath, map[string]string{"x/file": "data"})
+	sum, err := fileSHA256(tarPath)
+	require.NoError(t, err)
+
+	// Seed the cache with a corrupt file under the name the fetch expects.
+	cached := filepath.Join(cache, "x.tar.gz")
+	require.NoError(t, os.WriteFile(cached, []byte("corrupt"), 0o644))
+
+	repo := NewFetchRepository()
+	repo.SetCacheDir(cache)
+	_, err = repo.FetchArchive(context.Background(), domain.ArchiveFetch{
+		URL:          "https://example.invalid/x.tar.gz",
+		Checksum:     sum,
+		ChecksumType: "sha256",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum mismatch")
+}
+
+// TestFetchArchive_MD5 verifies the md5 algorithm path.
+func TestFetchArchive_MD5(t *testing.T) {
+	cache := t.TempDir()
+	tarPath := filepath.Join(t.TempDir(), "x.tar.gz")
+	makeTarGz(t, tarPath, map[string]string{"x/file": "data"})
+	sum, err := fileMD5(tarPath)
+	require.NoError(t, err)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, tarPath)
+	}))
+	defer srv.Close()
+
+	repo := NewFetchRepository()
+	repo.SetCacheDir(cache)
+	_, err = repo.FetchArchive(context.Background(), domain.ArchiveFetch{
+		URL:          srv.URL + "/x.tar.gz",
+		Checksum:     sum,
+		ChecksumType: "md5",
+	})
+	require.NoError(t, err)
+
+	// Wrong md5 must fail.
+	repo2 := NewFetchRepository()
+	repo2.SetCacheDir(t.TempDir())
+	_, err = repo2.FetchArchive(context.Background(), domain.ArchiveFetch{
+		URL:          srv.URL + "/x.tar.gz",
+		Checksum:     "00000000000000000000000000000000",
+		ChecksumType: "md5",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checksum mismatch")
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fileMD5(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
