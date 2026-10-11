@@ -178,3 +178,43 @@ func TestEvalVersionCondition(t *testing.T) {
 	assert.False(t, evalVersionCondition(domain.VersionCondition{Eq: "17"}, "13.5"))
 	assert.False(t, evalVersionCondition(domain.VersionCondition{}, "13.5"))
 }
+
+// TestExecute_UserOpIsIdempotent covers the case that broke a container build:
+// base images (Debian/Ubuntu) already ship www-data, so useradd fails. The user
+// op must treat an existing user as success, and must do so regardless of
+// whether output capture is enabled (runProcess used to discard output, which
+// silently defeated the "already exists" guard).
+func TestExecute_UserOpIsIdempotent(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("user/group creation requires root")
+	}
+	e := newTestExecutor(t)
+
+	// "root" always exists; creating it again must be a no-op, not an error.
+	existing := domain.Step{
+		Name: "existing user",
+		Ops:  []domain.Operation{{User: &domain.UserOp{Name: "root", System: true}}},
+	}
+	_, err := e.Execute(context.Background(), existing, domain.StepContext{})
+	require.NoError(t, err)
+
+	// A fresh user is created, and a second run is idempotent.
+	const name = "forgeuseridempotent"
+	_, _ = runProcess(context.Background(), exec.Command("userdel", name))
+	t.Cleanup(func() { _, _ = runProcess(context.Background(), exec.Command("userdel", name)) })
+
+	fresh := domain.Step{
+		Name: "fresh user",
+		Ops:  []domain.Operation{{User: &domain.UserOp{Name: name, System: true}}},
+	}
+	_, err = e.Execute(context.Background(), fresh, domain.StepContext{})
+	require.NoError(t, err)
+	_, err = e.Execute(context.Background(), fresh, domain.StepContext{})
+	require.NoError(t, err)
+	assert.NoError(t, runProcessErr(exec.Command("id", "-u", name)))
+}
+
+func runProcessErr(cmd *exec.Cmd) error {
+	_, err := runProcess(context.Background(), cmd)
+	return err
+}

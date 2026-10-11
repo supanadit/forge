@@ -15,8 +15,20 @@ import (
 // output. If ctx is cancelled while the command runs, the entire process group
 // (the command and any children it spawned, e.g. `sh -c "sleep 30"`) is
 // killed — a bare exec.CommandContext would only kill the direct child.
+//
+// Output is captured (bounded to the last maxTailLines lines) so callers can
+// inspect it — e.g. to treat `useradd` on an existing user as success, or to
+// include a useful tail in an error. It is not streamed to the terminal; use
+// runProcessVerbose when live output is wanted.
 func runProcess(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 	setProcessGroup(cmd)
+	tw := newTailWriter(50)
+	if cmd.Stdout == nil {
+		cmd.Stdout = tw
+	}
+	if cmd.Stderr == nil {
+		cmd.Stderr = tw
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -26,11 +38,11 @@ func runProcess(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 
 	select {
 	case err := <-done:
-		return nil, err
+		return tw.Bytes(), err
 	case <-ctx.Done():
 		killGroup(cmd)
 		<-done
-		return nil, ctx.Err()
+		return tw.Bytes(), ctx.Err()
 	}
 }
 

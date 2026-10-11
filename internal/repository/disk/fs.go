@@ -18,6 +18,13 @@ func (e *Executor) executeUser(ctx context.Context, u *domain.UserOp, verbose bo
 	if u == nil || u.Name == "" {
 		return fmt.Errorf("user step has no user")
 	}
+	// Idempotency is checked up front with `id`: it is unambiguous across
+	// platforms and does not depend on parsing useradd's error text. Base images
+	// such as Debian and Ubuntu already ship www-data, and useradd would fail
+	// with "user 'www-data' already exists" (or "UID 33 is not unique").
+	if _, err := runProcess(ctx, exec.Command("id", "-u", u.Name)); err == nil {
+		return nil
+	}
 	args := []string{}
 	if u.System {
 		args = append(args, "-r")
@@ -32,7 +39,7 @@ func (e *Executor) executeUser(ctx context.Context, u *domain.UserOp, verbose bo
 	cmd := exec.Command("useradd", args...)
 	out, err := runProcess(ctx, cmd)
 	if err != nil {
-		// useradd exits non-zero if the user already exists; treat as success.
+		// Belt and braces: a concurrent create can still race us here.
 		if strings.Contains(string(out), "already exists") {
 			return nil
 		}
